@@ -1,9 +1,9 @@
 {
-    description = "hw flake";
+    description = "enae644-hw02 flake";
 
     inputs = {
         # nixpkgs
-        nixpkgs.url = "github:nixos/nixpkgs";
+        nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
         # nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
         # flake tools (thanks numtide)

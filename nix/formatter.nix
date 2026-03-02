@@ -20,13 +20,8 @@ inputs.treefmt-nix.lib.mkWrapper pkgs {
         };
     };
 
-    # python
+    # haskell
     programs = {
-        black.enable = true;
-    };
-
-    # latex
-    programs = {
-        latexindent.enable = true;
+        ormolu.enable = true;
     };
 }
