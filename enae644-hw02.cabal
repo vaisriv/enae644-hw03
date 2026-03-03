@@ -59,7 +59,7 @@ extra-doc-files:
 common warnings
     ghc-options: -Wall
 
-executable enae644-hw01
+executable enae644-hw02
     -- Import common warning flags.
     import:           warnings
 
@@ -67,7 +67,9 @@ executable enae644-hw01
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    AStar
+    other-modules:
+        Graphs,
+        RRT
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

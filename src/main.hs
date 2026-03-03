@@ -1,7 +1,18 @@
 module Main where
 
-import qualified AStar (AStarResult (..), Graph, Node (..), astar, printGraph, readGraph)
-import System.Directory (createDirectoryIfMissing)
+import GHC.Generics
+import qualified Graphs
+  ( Graph (..),
+    Node (..),
+    Edge (..),
+    printGraph,
+  )
+import qualified RRT
+  ( Workspace (..),
+    -- Obstacle (..),
+    -- Problem (..),
+    -- rrt,
+  )
 import qualified System.Environment
 import qualified System.Exit
 import System.FilePath ((</>))
@@ -9,116 +20,71 @@ import System.FilePath ((</>))
 -- args
 data Args = Args
   { inputPath :: FilePath,
-    outputPath :: FilePath,
-    weighted :: Bool,
-    startID :: Int,
-    goalID :: Int
+    outputPath :: FilePath
   }
 
 -- main
 main :: IO ()
 main = do
   args <- System.Environment.getArgs >>= parse
-  graph <- AStar.readGraph (inputPath args) (weighted args)
-  AStar.printGraph graph
-  putStrLn ""
-  putStrLn $
-    "Searching from node "
-      ++ show (startID args)
-      ++ " to node "
-      ++ show (goalID args)
-  let (result, treeEdges) = AStar.astar graph (startID args) (goalID args)
-  createDirectoryIfMissing True (outputPath args)
-  writeSearchTree (outputPath args </> "search_tree.csv") treeEdges
-  case result of
-    Nothing -> do
-      putStrLn "No path found."
-      putStrLn $ "Search tree written to " ++ outputPath args
-    Just r -> do
-      let cost = pathCost r
-      putStrLn $ "Path found (cost: " ++ show cost ++ "):"
-      putStrLn $ "  " ++ unwords (map (show . AStar.nodeID) (AStar.pathNodes r))
-      writePathCSV (outputPath args </> "output_path.csv") (AStar.pathNodes r)
-      putStrLn $ "Results written to " ++ outputPath args
-
--- sum edge weights along the path
-pathCost :: AStar.AStarResult -> Float
-pathCost result =
-  let ns = reverse (AStar.pathNodes result) -- start -> goal order
-      pairs = zip ns (tail ns)
-   in sum [dist a b | (a, b) <- pairs]
-  where
-    dist a b =
-      let dx = AStar.xCoord a - AStar.xCoord b
-          dy = AStar.yCoord a - AStar.yCoord b
-       in sqrt (dx * dx + dy * dy)
-
--- CSV output
-nodeRow :: AStar.Node -> String
-nodeRow n =
-  show (AStar.nodeID n)
-    ++ ", "
-    ++ show (AStar.xCoord n)
-    ++ ", "
-    ++ show (AStar.yCoord n)
-
--- output_path.csv: goal at top, start at bottom
-writePathCSV :: FilePath -> [AStar.Node] -> IO ()
-writePathCSV fp ns = do
-  let header = "nodeID, x_location, y_location"
-      rows = map nodeRow ns
-  writeFile fp (unlines (header : rows))
-
--- search_tree.csv: one row per relaxed edge
-writeSearchTree :: FilePath -> [(AStar.Node, AStar.Node)] -> IO ()
-writeSearchTree fp edges = do
-  let header = "nodeID, x_location, y_location, parentID, parent_x_location, parent_y_location"
-      rows = map edgeRow edges
-  writeFile fp (unlines (header : rows))
-  where
-    edgeRow (child, parent) =
-      nodeRow child ++ ", " ++ nodeRow parent
+  putStrLn "foobar"
 
 -- CLI parsing
--- flags may appear in any order
--- ./enae644-hw02 -i <inputPath> -o <outputPath> -s <start> -g <goal> [-w]
+-- ./enae644-hw02 [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]
 parse :: [String] -> IO Args
 parse argv = case argv of
   ["-h"] -> usage >> exit >> return dummy
+  ["--help"] -> usage >> exit >> return dummy
   ["-v"] -> version >> exit >> return dummy
-  _ -> parseFlags argv (Args "" "" False 0 0)
+  ["--version"] -> version >> exit >> return dummy
+  _ -> parseFlags argv (Args "" "")
   where
-    dummy = Args "" "" False 0 0
+    dummy = Args "" ""
+
+-- info flags
+usage :: IO ()
+usage = do
+  putStrLn "Usage: enae644-hw02 [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]"
+  putStrLn ""
+  putStrLn "Arguments:"
+  putStrLn "  INPUTDIR"
+  putStrLn "          Directory with obstacles file (`obstacles.txt`) and problem file (`p<##>.toml`)"
+  putStrLn "          Default: `./data/`"
+  putStrLn ""
+  putStrLn "  OUTDIR"
+  putStrLn "          Directory to save solution files (`<##>/path.csv`, `<##>/search_tree.csv`)"
+  putStrLn "          Solution files will be placed in a subdirectory corresponding to the problem number"
+  putStrLn "          Default: `./outputs/`"
+  putStrLn ""
+  putStrLn "  PROBLEMNUM"
+  putStrLn "          Number of problem for which to calculate RRT path"
+  putStrLn "          This should correspond to a valid problem file (`p<##>.toml`) in the provided [INPUTDIR]"
+  putStrLn "          Problem numbers and associated files should be numerically padded to 2 digits"
+  putStrLn "          Default: `01`"
+  putStrLn ""
+  putStrLn "Options:"
+  putStrLn "  -h, --help"
+  putStrLn "          Print this help menu"
+  putStrLn ""
+  putStrLn "  -v, --version"
+  putStrLn "          Print version"
+
+version :: IO ()
+version = putStrLn "enae644-hw02 0.1 (GHC 9.10)"
 
 -- flag parsing
 parseFlags :: [String] -> Args -> IO Args
 parseFlags [] args = validate args
-parseFlags ("-i" : path : rest) args = parseFlags rest args {inputPath = path}
-parseFlags ("-o" : path : rest) args = parseFlags rest args {outputPath = path}
-parseFlags ("-s" : n : rest) args = parseFlags rest args {startID = read n}
-parseFlags ("-g" : n : rest) args = parseFlags rest args {goalID = read n}
-parseFlags ("-w" : rest) args = parseFlags rest args {weighted = True}
 parseFlags (flag : _) _ = do
   putStrLn $ "Unknown flag: " ++ flag
   usage
   die
-  return (Args "" "" False 0 0)
+  return (Args "" "")
 
 -- flag validation
 validate :: Args -> IO Args
 validate args
-  | null (inputPath args) = putStrLn "Missing -i <inputPath>" >> die >> return args
-  | null (outputPath args) = putStrLn "Missing -o <outputPath>" >> die >> return args
-  | startID args == 0 && goalID args == 0 =
-      putStrLn "Missing -s and -g" >> die >> return args
   | otherwise = return args
-
--- flag outputs
-usage :: IO ()
-usage = putStrLn "Usage: enae644-hw02 -i <inputPath> -o <outputPath> -s <startID> -g <goalID> [-w]"
-
-version :: IO ()
-version = putStrLn "Haskell enae644-hw02 0.1"
 
 exit :: IO ()
 exit = System.Exit.exitWith System.Exit.ExitSuccess
