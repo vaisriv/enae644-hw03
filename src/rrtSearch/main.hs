@@ -1,6 +1,13 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
-import qualified Data.Map.Strict as Map
+import Data.Aeson
+  ( FromJSON (..),
+    eitherDecodeFileStrict,
+    withObject,
+    (.:),
+  )
 import qualified Graphs
   ( Graph (..),
     Node (..),
@@ -39,6 +46,129 @@ defaultArgs =
     }
 
 -------------------------------------------------------------------------------
+-- JSON types (intermediate representations for aeson parsing)
+-------------------------------------------------------------------------------
+
+-- | intermediate type for deserializing the workspace object
+--     { "x": [xmin, xmax], "y": [ymin, ymax] }
+data JsonWorkspace = JsonWorkspace
+  { jwX :: [Double],
+    jwY :: [Double]
+  }
+
+instance FromJSON JsonWorkspace where
+  parseJSON = withObject "Workspace" $ \o ->
+    JsonWorkspace <$> o .: "x" <*> o .: "y"
+
+-- | intermediate type for deserializing the start/point objects
+--     { "x": ..., "y": ... }
+data JsonPoint = JsonPoint
+  { jpX :: Double,
+    jpY :: Double
+  }
+
+instance FromJSON JsonPoint where
+  parseJSON = withObject "Point" $ \o ->
+    JsonPoint <$> o .: "x" <*> o .: "y"
+
+-- | intermediate type for deserializing the goal object
+--     { "x": ..., "y": ..., "radius": ... }
+data JsonGoal = JsonGoal
+  { jgX :: Double,
+    jgY :: Double,
+    jgRadius :: Double
+  }
+
+instance FromJSON JsonGoal where
+  parseJSON = withObject "Goal" $ \o ->
+    JsonGoal <$> o .: "x" <*> o .: "y" <*> o .: "radius"
+
+-- | intermediate type for deserializing the motion object
+--     { "epsilon": ... }
+data JsonMotion = JsonMotion
+  { jmEpsilon :: Double
+  }
+
+instance FromJSON JsonMotion where
+  parseJSON = withObject "Motion" $ \o ->
+    JsonMotion <$> o .: "epsilon"
+
+-- | top-level problem file
+data JsonProblem = JsonProblem
+  { jpWorkspace :: JsonWorkspace,
+    jpStart :: JsonPoint,
+    jpGoal :: JsonGoal,
+    jpMotion :: JsonMotion
+  }
+
+instance FromJSON JsonProblem where
+  parseJSON = withObject "Problem" $ \o ->
+    JsonProblem
+      <$> o .: "workspace"
+      <*> o .: "start"
+      <*> o .: "goal"
+      <*> o .: "motion"
+
+-------------------------------------------------------------------------------
+-- Parsing
+-------------------------------------------------------------------------------
+
+-- | parse `obstacles.txt` into a list of Obstacles
+--
+--   format:
+--     num_obstacles
+--     x_1, y_1, radius_1
+--     ...
+parseObstacles :: System.FilePath.FilePath -> IO [RRT.Obstacle]
+parseObstacles path = do
+  contents <- readFile path
+  let ls = lines contents
+  case ls of
+    [] -> fail "obstacles.txt is empty"
+    (_ : rest) -> mapM parseLine (filter (not . null) rest)
+  where
+    parseLine l = case map (read . trim) (splitOn ',' l) of
+      [x, y, r] -> return $ RRT.Obstacle x y r
+      _ -> fail $ "malformed obstacle line: " ++ l
+    trim = reverse . dropWhile (== ' ') . reverse . dropWhile (== ' ')
+    splitOn _ [] = [""]
+    splitOn delim (c : cs)
+      | c == delim = "" : splitOn delim cs
+      | otherwise = let (w : ws) = splitOn delim cs in (c : w) : ws
+
+-- | parse `pXX.json` into a Problem
+--   obstacles are passed in separately (parsed from `obstacles.txt`)
+parseProblem :: System.FilePath.FilePath -> [RRT.Obstacle] -> IO RRT.Problem
+parseProblem path obs = do
+  result <- eitherDecodeFileStrict path
+  case result of
+    Left err -> fail $ "failed to parse problem file: " ++ err
+    Right jp -> return $ toProblem jp
+  where
+    toProblem jp =
+      RRT.Problem
+        { RRT.problemWorkspace = toWorkspace (jpWorkspace jp),
+          RRT.problemStart = (jpX (jpStart jp), jpY (jpStart jp)),
+          RRT.problemGoal = toGoal (jpGoal jp),
+          RRT.problemMotion = toMotion (jpMotion jp),
+          RRT.problemObstacles = obs
+        }
+    toWorkspace jw = case (jwX jw, jwY jw) of
+      ([xmin, xmax], [ymin, ymax]) ->
+        RRT.Workspace xmin xmax ymin ymax
+      _ -> error "workspace x/y bounds must each be a 2-element array"
+    toGoal jg =
+      RRT.Goal
+        { RRT.goalX = jgX jg,
+          RRT.goalY = jgY jg,
+          RRT.goalRadius = jgRadius jg
+        }
+    toMotion jm =
+      RRT.Motion
+        { RRT.motionEpsilon = jmEpsilon jm
+        }
+
+-------------------------------------------------------------------------------
 -- Main
 -------------------------------------------------------------------------------
 
@@ -59,13 +189,17 @@ main = do
     else return ()
   -- ensure output directory exists
   System.Directory.createDirectoryIfMissing True outDir
+  -- parse inputs
+  obstacles <- parseObstacles obsFile
+  problem <- parseProblem probFile obstacles
   -- TODO:
-  -- (step 4): parse inputs
   -- (step 5): run RRT
   -- (step 6): write outputs
   putStrLn $ "rrtSearch: problem " ++ problemNum args
-  putStrLn $ "  input:  " ++ inputPath args
-  putStrLn $ "  output: " ++ outDir
+  putStrLn $ "  input:     " ++ inputPath args
+  putStrLn $ "  output:    " ++ outDir
+  putStrLn $ "  obstacles: " ++ show (length obstacles)
+  putStrLn $ "  problem:   " ++ show problem
 
 -------------------------------------------------------------------------------
 -- CLI parsing

@@ -25,8 +25,8 @@ import Data.Ord (comparing)
 import qualified Graphs
   ( Graph (..),
     Node (..),
-    emptyGraph,
     addNode,
+    emptyGraph,
     graphNodes,
     pathToRoot,
   )

@@ -54,17 +54,48 @@ class TreeNode:
 
 
 def load_obstacles(data_dir: str) -> list[Obstacle]:
-    """parse `obstacles.txt` and return a list of Obstacle instances"""
-    # TODO:
-    # (step 4) implement
-    raise NotImplementedError
+    """parse `obstacles.txt` and return a list of Obstacle instances
+
+    format:
+        num_obstacles
+        x_1, y_1, radius_1
+        ...
+    """
+    path = os.path.join(data_dir, "obstacles.txt")
+    obstacles = []
+    with open(path) as f:
+        lines = [l.strip() for l in f.readlines()]
+    # first line is count — skip it, parse the rest
+    for line in lines[1:]:
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 3:
+            raise ValueError(f"malformed obstacle line: {line!r}")
+        x, y, r = float(parts[0]), float(parts[1]), float(parts[2])
+        obstacles.append(Obstacle(x=x, y=y, radius=r))
+    return obstacles
 
 
 def load_problem(data_dir: str, problem_num: str) -> Problem:
     """parse `pXX.json` and return a Problem instance"""
-    # TODO:
-    # (step 4) implement
-    raise NotImplementedError
+    path = os.path.join(data_dir, f"p{problem_num}.json")
+    with open(path) as f:
+        d = json.load(f)
+    workspace = Workspace(
+        x_min=d["workspace"]["x"][0],
+        x_max=d["workspace"]["x"][1],
+        y_min=d["workspace"]["y"][0],
+        y_max=d["workspace"]["y"][1],
+    )
+    start = (float(d["start"]["x"]), float(d["start"]["y"]))
+    goal = Goal(
+        x=float(d["goal"]["x"]),
+        y=float(d["goal"]["y"]),
+        radius=float(d["goal"]["radius"]),
+    )
+    epsilon = float(d["motion"]["epsilon"])
+    return Problem(workspace=workspace, start=start, goal=goal, epsilon=epsilon)
 
 
 def load_search_tree(output_dir: str) -> list[TreeNode]:
