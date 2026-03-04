@@ -8,10 +8,12 @@ import Data.Aeson
     withObject,
     (.:),
   )
+import qualified Data.Map.Strict as Map
 import qualified Graphs
   ( Graph (..),
     Node (..),
     emptyGraph,
+    graphNodes,
     printGraph,
   )
 import qualified RRT
@@ -26,6 +28,7 @@ import qualified System.Directory (createDirectoryIfMissing, doesFileExist)
 import qualified System.Environment
 import qualified System.Exit
 import qualified System.FilePath (FilePath, (</>))
+import System.Random (initStdGen)
 
 -------------------------------------------------------------------------------
 -- Args
@@ -34,7 +37,8 @@ import qualified System.FilePath (FilePath, (</>))
 data Args = Args
   { inputPath :: System.FilePath.FilePath,
     outputPath :: System.FilePath.FilePath,
-    problemNum :: String
+    problemNum :: String,
+    maxAttempts :: Int
   }
 
 defaultArgs :: Args
@@ -42,7 +46,8 @@ defaultArgs =
   Args
     { inputPath = "./data",
       outputPath = "./outputs",
-      problemNum = "01"
+      problemNum = "01",
+      maxAttempts = 100000
     }
 
 -------------------------------------------------------------------------------
@@ -169,6 +174,49 @@ parseProblem path obs = do
         }
 
 -------------------------------------------------------------------------------
+-- Serialization
+-------------------------------------------------------------------------------
+
+-- | write `search_tree.csv` from the final RRT graph
+--
+--   format (with header):
+--     node_id,x,y,parent_id
+--     ...
+--   root node has parent_id = -1
+writeSearchTree :: System.FilePath.FilePath -> Graphs.Graph -> IO ()
+writeSearchTree path g = do
+  let header = "node_id,x,y,parent_id"
+      rows = map nodeRow (Map.elems (Graphs.graphNodes g))
+  writeFile path (unlines (header : rows))
+  where
+    nodeRow n =
+      show (Graphs.nodeId n)
+        ++ ","
+        ++ show (Graphs.nodeX n)
+        ++ ","
+        ++ show (Graphs.nodeY n)
+        ++ ","
+        ++ maybe "-1" show (Graphs.nodeParent n)
+
+-- | write `path.csv` from the RRT result
+--
+--   success format (with header):
+--     x,y
+--     ...
+--
+--   failure format:
+--     ERROR: <message>
+writePath :: System.FilePath.FilePath -> Either String [Graphs.Node] -> IO ()
+writePath path (Left errMsg) =
+  writeFile path ("ERROR: " ++ errMsg ++ "\n")
+writePath path (Right nodes) = do
+  let header = "x,y"
+      rows = map nodeRow nodes
+  writeFile path (unlines (header : rows))
+  where
+    nodeRow n = show (Graphs.nodeX n) ++ "," ++ show (Graphs.nodeY n)
+
+-------------------------------------------------------------------------------
 -- Main
 -------------------------------------------------------------------------------
 
@@ -178,6 +226,8 @@ main = do
   let probFile = inputPath args System.FilePath.</> ("p" ++ problemNum args ++ ".json")
       obsFile = inputPath args System.FilePath.</> "obstacles.txt"
       outDir = outputPath args System.FilePath.</> problemNum args
+      treeFile = outDir System.FilePath.</> "search_tree.csv"
+      pathFile = outDir System.FilePath.</> "path.csv"
   -- verify inputs exist
   probExists <- System.Directory.doesFileExist probFile
   obsExists <- System.Directory.doesFileExist obsFile
@@ -192,27 +242,51 @@ main = do
   -- parse inputs
   obstacles <- parseObstacles obsFile
   problem <- parseProblem probFile obstacles
-  -- TODO:
-  -- (step 5): run RRT
-  -- (step 6): write outputs
+  -- run RRT
+  gen <- initStdGen
+  let (tree, result) = RRT.rrt problem (maxAttempts args) gen
+  -- write outputs
+  writeSearchTree treeFile tree
+  writePath pathFile result
+  -- report
   putStrLn $ "rrtSearch: problem " ++ problemNum args
   putStrLn $ "  input:     " ++ inputPath args
   putStrLn $ "  output:    " ++ outDir
   putStrLn $ "  obstacles: " ++ show (length obstacles)
-  putStrLn $ "  problem:   " ++ show problem
+  putStrLn $ "  attempts:  " ++ show (maxAttempts args)
+  putStrLn $ "  nodes:     " ++ show (Map.size (Graphs.graphNodes tree))
+  case result of
+    Left err -> putStrLn $ "  result:    FAILED — " ++ err
+    Right path -> putStrLn $ "  result:    OK — path length " ++ show (length path)
 
 -------------------------------------------------------------------------------
 -- CLI parsing
 -------------------------------------------------------------------------------
 
--- Usage: ./rrtSearch [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]
+-- Usage: ./rrtSearch [-a N] [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]
 parse :: [String] -> IO Args
 parse argv = case argv of
   ["-h"] -> usage >> exit >> return defaultArgs
   ["--help"] -> usage >> exit >> return defaultArgs
   ["-v"] -> version >> exit >> return defaultArgs
   ["--version"] -> version >> exit >> return defaultArgs
-  _ -> parsePositional argv defaultArgs
+  _ -> parseFlags argv defaultArgs
+
+-- | scan for -a/--attempts before consuming positional arguments
+--   this allows the flag to appear anywhere in the argument list
+parseFlags :: [String] -> Args -> IO Args
+parseFlags [] args = return args
+parseFlags ("-a" : n : rest) args = case reads n of
+  [(i, "")] | i > 0 -> parseFlags rest args {maxAttempts = i}
+  _ -> putStrLn ("Error: -a/--attempts requires a positive integer. Got: " ++ n) >> die >> return defaultArgs
+parseFlags ("--attempts" : n : rest) args = case reads n of
+  [(i, "")] | i > 0 -> parseFlags rest args {maxAttempts = i}
+  _ -> putStrLn ("Error: -a/--attempts requires a positive integer. Got: " ++ n) >> die >> return defaultArgs
+parseFlags ("-a" : []) _ =
+  putStrLn "Error: -a/--attempts requires an argument" >> die >> return defaultArgs
+parseFlags ("--attempts" : []) _ =
+  putStrLn "Error: -a/--attempts requires an argument" >> die >> return defaultArgs
+parseFlags positionals args = parsePositional positionals args
 
 -- | parse up to three positional arguments,
 --   fills in defaults for any omitted
@@ -242,7 +316,7 @@ validate args =
 
 usage :: IO ()
 usage = do
-  putStrLn "Usage: rrtSearch [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]"
+  putStrLn "Usage: rrtSearch [-a N] [INPUTDIR] [OUTPUTDIR] [PROBLEMNUM]"
   putStrLn ""
   putStrLn "Arguments:"
   putStrLn "  INPUTDIR"
@@ -261,6 +335,10 @@ usage = do
   putStrLn "          Default: `01`"
   putStrLn ""
   putStrLn "Options:"
+  putStrLn "  -a N, --attempts N"
+  putStrLn "          Maximum number of RRT iterations before giving up"
+  putStrLn "          Default: 100000"
+  putStrLn ""
   putStrLn "  -h, --help"
   putStrLn "          Print this help menu"
   putStrLn ""

@@ -99,15 +99,33 @@ def load_problem(data_dir: str, problem_num: str) -> Problem:
 
 
 def load_search_tree(output_dir: str) -> list[TreeNode]:
-    """read `search_tree.csv` (node_id, x, y, parent_id) and return nodes in order"""
-    # TODO:
-    # (step 5) implement
-    raise NotImplementedError
+    """read `search_tree.csv` (node_id,x,y,parent_id) and return nodes in order"""
+    path = os.path.join(output_dir, "search_tree.csv")
+    nodes = []
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            nodes.append(
+                TreeNode(
+                    node_id=int(row["node_id"]),
+                    x=float(row["x"]),
+                    y=float(row["y"]),
+                    parent_id=int(row["parent_id"]),
+                )
+            )
+    return nodes
 
 
 def load_path(output_dir: str) -> list[tuple[float, float]] | str:
     """read `path.csv` and return either a list of (x, y) waypoints,
     or an error string if the file contains an ERROR: message"""
-    # TODO:
-    # (step 5) implement
-    raise NotImplementedError
+    path = os.path.join(output_dir, "path.csv")
+    with open(path, newline="") as f:
+        first_line = f.readline().strip()
+        # error case — return the message as a plain string
+        if first_line.startswith("ERROR:"):
+            return first_line
+        # success case — re-read with csv.DictReader (first line was the header)
+        f.seek(0)
+        reader = csv.DictReader(f)
+        return [(float(row["x"]), float(row["y"])) for row in reader]
