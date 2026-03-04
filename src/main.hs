@@ -15,12 +15,15 @@ import qualified RRT
   )
 import qualified System.Environment
 import qualified System.Exit
-import System.FilePath ((</>))
+import qualified System.FilePath
+  ( FilePath (..),
+    (</>),
+  )
 
 -- args
 data Args = Args
-  { inputPath :: FilePath,
-    outputPath :: FilePath
+  { inputPath :: System.FilePath.FilePath,
+    outputPath :: System.FilePath.FilePath
   }
 
 -- main

@@ -1,11 +1,11 @@
 {pkgs}:
 pkgs.stdenv.mkDerivation {
-    pname = "enae644-hw02";
+    pname = "rrtSearch";
     version = "0.1.0.0";
     src = ./.;
     isLibrary = false;
     isExecutable = true;
-    mainProgram = "enae644-hw02";
+    mainProgram = "rrtSearch";
 
     meta = {
         homepage = "https://github.com/vaisriv/enae644-hw02";

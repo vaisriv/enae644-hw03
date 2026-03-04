@@ -9,8 +9,11 @@ module RRT
 where
 
 import GHC.Generics
-import qualified Graphs (Edge, Graph, Node)
-import System.FilePath ((</>))
+import qualified Graphs
+  ( Edge (..),
+    Graph (..),
+    Node (..),
+  )
 
 -- graph structures
 data Workspace = Workspace

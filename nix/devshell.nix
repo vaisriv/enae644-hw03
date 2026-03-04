@@ -13,6 +13,11 @@ perSystem.devshell.mkShell {
     commands = [];
 
     packages = with pkgs; [
+        # python
+        python3
+        uv
+        ty
+
         # haskell
         ghc
         cabal-install

@@ -1,4 +1,4 @@
-# Revision history for enae644-hw02
+# Revision history for rrtSearch
 
 ## 0.1.0.0 -- 2026-03-02
 

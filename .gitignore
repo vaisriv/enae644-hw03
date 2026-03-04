@@ -5,7 +5,7 @@
 # *.[oa]
 # *~
 
-# ignore nix artifacts
+# nix
 .direnv
 result
 result-*
@@ -34,3 +34,9 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+
+# python
+**/.venv
+**/__pycache__
+**/*.egg-info
+**/build

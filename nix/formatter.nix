@@ -25,7 +25,12 @@ inputs.treefmt-nix.lib.mkWrapper pkgs {
         ormolu.enable = true;
     };
 
-    # json/python
+    # python
+    programs = {
+        black.enable = true;
+    };
+
+    # json/markdown
     programs = {
         prettier.enable = true;
     };
