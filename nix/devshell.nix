@@ -13,14 +13,17 @@ perSystem.devshell.mkShell {
     commands = [ ];
 
     packages = with pkgs; [
+        # haskell
+        ghc
+        cabal-install
+        haskell-language-server
+
         # python
         python3
         uv
         ty
 
-        # haskell
-        ghc
-        cabal-install
-        haskell-language-server
+        # typst
+        tinymist
     ];
 }

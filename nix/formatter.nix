@@ -15,7 +15,18 @@ inputs.treefmt-nix.lib.mkWrapper pkgs {
         };
     };
 
-    # md
+    # haskell
+    programs = {
+        ormolu.enable = true;
+    };
+
+    # python
+    programs = {
+        ruff-check.enable = true;
+        ruff-format.enable = true;
+    };
+
+    # json/markdown
     programs.prettier = {
         enable = true;
         settings = {
@@ -23,14 +34,14 @@ inputs.treefmt-nix.lib.mkWrapper pkgs {
         };
     };
 
-    # latex
-    programs = {
-        latexindent.enable = true;
-    };
-
-    # python
-    programs = {
-        ruff-check.enable = true;
-        ruff-format.enable = true;
+    # typst
+    programs.typstyle.enable = true;
+    settings.formatter = {
+        typstyle = {
+            options = [
+                "--tab-width"
+                "4"
+            ];
+        };
     };
 }
