@@ -1,0 +1,19 @@
+{
+    "workspace": {
+        "x": [-50, 50],
+        "y": [-50, 50]
+    },
+    "start": {
+        "x": 30,
+        "y": 40,
+        "theta_pi_rad": 1.5
+    },
+    "goal": {
+        "x": -50,
+        "y": -30,
+        "radius": 5
+    },
+    "motion": {
+        "epsilon": 5
+    }
+}
