@@ -2,8 +2,9 @@
     pkgs,
     inputs,
     ...
-}: let
-    workspace = inputs.uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ../../../.;};
+}:
+let
+    workspace = inputs.uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ../../../.; };
     overlay = workspace.mkPyprojectOverlay {
         sourcePreference = "wheel";
     };
@@ -17,4 +18,4 @@
         ]
     );
 in
-    pythonSets.mkVirtualEnv "rrtVis" workspace.deps.default
+pythonSets.mkVirtualEnv "rrtVis" workspace.deps.default

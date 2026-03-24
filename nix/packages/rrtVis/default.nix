@@ -3,4 +3,4 @@
     inputs,
     ...
 }:
-pkgs.callPackage ./rrtVis.nix {inherit pkgs inputs;}
+pkgs.callPackage ./rrtVis.nix { inherit pkgs inputs; }

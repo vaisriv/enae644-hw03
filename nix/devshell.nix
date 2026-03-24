@@ -10,7 +10,7 @@ perSystem.devshell.mkShell {
         $(type -p menu &>/dev/null && menu)
     '';
 
-    commands = [];
+    commands = [ ];
 
     packages = with pkgs; [
         # python

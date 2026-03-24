@@ -1,2 +1,1 @@
-{pkgs}:
-pkgs.callPackage ./rrtSearch {}
+{ pkgs }: pkgs.callPackage ./rrtSearch { }

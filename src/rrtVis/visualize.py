@@ -4,7 +4,6 @@ import matplotlib.figure
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.collections as mcollections
-import numpy as np
 
 from rrtVis.parse import Goal, Obstacle, Problem, TreeNode
 

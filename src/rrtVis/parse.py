@@ -64,7 +64,7 @@ def load_obstacles(data_dir: str) -> list[Obstacle]:
     path = os.path.join(data_dir, "obstacles.txt")
     obstacles = []
     with open(path) as f:
-        lines = [l.strip() for l in f.readlines()]
+        lines = [line.strip() for line in f.readlines()]
     # first line is count — skip it, parse the rest
     for line in lines[1:]:
         if not line:

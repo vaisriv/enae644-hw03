@@ -28,7 +28,7 @@ def main(input_dir: str, output_dir: str, problem_num: str, save: bool) -> None:
                   Default: `01`
     """
     out_dir = os.path.join(output_dir, problem_num)
-    out_file = os.path.join(out_dir, f"rrt.png")
+    out_file = os.path.join(out_dir, "rrt.png")
 
     # load input data
     obstacles = parse.load_obstacles(input_dir)
