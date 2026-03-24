@@ -1,5 +1,5 @@
 {
-    description = "enae644-hw02 flake";
+    description = "enae644-hw03 flake";
 
     inputs = {
         # nixpkgs

@@ -6,32 +6,31 @@
 inputs.treefmt-nix.lib.mkWrapper pkgs {
     projectRootFile = "flake.nix";
 
-    # nix fmt
+    # nix
     programs = {
         deadnix.enable = true;
-        alejandra.enable = true;
-    };
-    settings.formatter = {
-        alejandra = {
-            options = [
-                "--experimental-config"
-                "./nix/fmt/alejandra.toml"
-            ];
+        nixfmt = {
+            enable = true;
+            indent = 4;
         };
     };
 
-    # haskell
+    # md
+    programs.prettier = {
+        enable = true;
+        settings = {
+            tabWidth = 4;
+        };
+    };
+
+    # latex
     programs = {
-        ormolu.enable = true;
+        latexindent.enable = true;
     };
 
     # python
     programs = {
-        black.enable = true;
-    };
-
-    # json/markdown
-    programs = {
-        prettier.enable = true;
+        ruff-check.enable = true;
+        ruff-format.enable = true;
     };
 }

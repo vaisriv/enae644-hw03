@@ -20,7 +20,7 @@ name:               rrtSearch
 -- PVP summary:     +-+------- breaking API changes
 --                  | | +----- non-breaking API additions
 --                  | | | +--- code changes with no API change
-version:            0.1.0.0
+version:            0.2.0.0
 
 -- A short (one-line) description of the package.
 -- synopsis:
@@ -29,7 +29,7 @@ version:            0.1.0.0
 -- description:
 
 -- URL for the project homepage or repository.
-homepage:           https://github.com/vaisriv/enae644-hw02
+homepage:           https://github.com/vaisriv/enae644-hw03
 
 -- The license under which the package is released.
 license:            MIT

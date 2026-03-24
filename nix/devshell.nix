@@ -4,7 +4,7 @@
     ...
 }:
 perSystem.devshell.mkShell {
-    name = "enae644-hw02 devshell";
+    name = "enae644-hw03 devshell";
     motd = ''
         {141}📚 hw{reset} devshell
         $(type -p menu &>/dev/null && menu)
