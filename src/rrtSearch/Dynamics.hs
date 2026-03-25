@@ -16,8 +16,10 @@ module Dynamics
     distState5D,
     robotBoundingRadius,
     -- Collision
+    pointInWorkspace,
     pointClearOfCircle,
     stateCollisionFree,
+    validateState,
     trajectoryCollisionFree,
     validateFinalPath,
     -- Steering (2P-BVP)
