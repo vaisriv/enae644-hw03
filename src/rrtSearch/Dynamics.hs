@@ -4,6 +4,7 @@ module Dynamics
     Control,
     Trajectory,
     RobotShape (RobotShape, shapePoints, shapeHull),
+    ValidationFailure (..),
     -- Dynamics
     carDynamics,
     integrateRK4,
@@ -22,6 +23,7 @@ module Dynamics
     validateState,
     trajectoryCollisionFree,
     validateFinalPath,
+    validateFinalPathWithDiagnostics,
     -- Steering (2P-BVP)
     steer,
   )
@@ -57,6 +59,22 @@ data RobotShape = RobotShape
   { shapePoints :: [(Double, Double)], -- all 37 points
     shapeHull :: [(Double, Double)] -- convex hull (~8 points)
   }
+  deriving (Show)
+
+-- | validation failure information for diagnostics
+data ValidationFailure
+  = WorkspaceBoundsViolation
+      { failureStateIndex :: Int,
+        failureState :: State5D,
+        violatingPoint :: (Double, Double),
+        violationType :: String
+      }
+  | ObstacleCollision
+      { failureStateIndex :: Int,
+        failureState :: State5D,
+        collidingPoint :: (Double, Double),
+        collidingObstacle :: Types.Obstacle
+      }
   deriving (Show)
 
 -------------------------------------------------------------------------------
@@ -266,6 +284,39 @@ validateFinalPath :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Worksp
 validateFinalPath states robot obstacles workspace =
   let subsampled = subsampleTrajectory 0.5 states
    in all (\s -> validateState s robot obstacles workspace) subsampled
+
+-- | validate final path with detailed diagnostics
+--   returns either Nothing (valid) or Just [failures]
+validateFinalPathWithDiagnostics :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Maybe [ValidationFailure]
+validateFinalPathWithDiagnostics states robot obstacles workspace =
+  let subsampled = subsampleTrajectory 0.5 states
+      indexed = zip [0 ..] subsampled
+      failures = concatMap (checkStateForFailures robot obstacles workspace) indexed
+   in if null failures then Nothing else Just failures
+  where
+    checkStateForFailures :: RobotShape -> [Types.Obstacle] -> Types.Workspace -> (Int, State5D) -> [ValidationFailure]
+    checkStateForFailures rob obs ws (idx, state) =
+      let transformedPoints = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapePoints rob)
+          -- Check workspace bounds
+          workspaceFailures = [ WorkspaceBoundsViolation idx state pt (violationMessage pt ws)
+                              | pt <- transformedPoints
+                              , not (pointInWorkspace pt ws)
+                              ]
+          -- Check obstacle collisions
+          obstacleFailures = [ ObstacleCollision idx state pt ob
+                             | pt <- transformedPoints
+                             , ob <- obs
+                             , not (pointClearOfCircle pt ob)
+                             ]
+       in workspaceFailures ++ obstacleFailures
+
+    violationMessage :: (Double, Double) -> Types.Workspace -> String
+    violationMessage (x, y) ws
+      | x < Types.workspaceXMin ws = "x too low: " ++ show x ++ " < " ++ show (Types.workspaceXMin ws)
+      | x > Types.workspaceXMax ws = "x too high: " ++ show x ++ " > " ++ show (Types.workspaceXMax ws)
+      | y < Types.workspaceYMin ws = "y too low: " ++ show y ++ " < " ++ show (Types.workspaceYMin ws)
+      | y > Types.workspaceYMax ws = "y too high: " ++ show y ++ " > " ++ show (Types.workspaceYMax ws)
+      | otherwise = "unknown violation"
 
 -------------------------------------------------------------------------------
 -- Steering Function (2P-BVP Solver)

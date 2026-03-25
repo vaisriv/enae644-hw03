@@ -24,10 +24,12 @@ import qualified Dynamics
   ( RobotShape (..),
     State5D (..),
     Trajectory,
+    ValidationFailure (..),
     distState5D,
     robotBoundingRadius,
     steer,
     validateFinalPath,
+    validateFinalPathWithDiagnostics,
   )
 import qualified Graphs
   ( Graph (..),
@@ -228,12 +230,17 @@ rrt problem maxIter gen = do
                               pathStates = map nodeToState5D path
                           putStr "Validating path with full robot geometry... "
                           hFlush stdout
-                          if Dynamics.validateFinalPath pathStates robot obs ws
-                            then do
+                          case Dynamics.validateFinalPathWithDiagnostics pathStates robot obs ws of
+                            Nothing -> do
                               putStrLn "✓ Path valid!"
                               return (g', Right path)
-                            else do
-                              putStrLn "✗ Validation failed, continuing search..."
+                            Just failures -> do
+                              putStrLn $ "✗ Validation failed (" ++ show (length failures) ++ " violations)"
+                              -- Print first few failures for diagnostics
+                              let firstFailures = take 3 failures
+                              mapM_ printFailure firstFailures
+                              when (length failures > 3) $
+                                putStrLn $ "  ... and " ++ show (length failures - 3) ++ " more violations"
                               go g' gen3 (iter + 1) (steerSuccesses + 1) -- path validation failed
                         else go g' gen3 (iter + 1) (steerSuccesses + 1)
 
@@ -280,6 +287,24 @@ rrt problem maxIter gen = do
             && x + robotRadius <= workspaceXMax ws
             && y - robotRadius >= workspaceYMin ws
             && y + robotRadius <= workspaceYMax ws
+
+    -- Print validation failure for diagnostics
+    printFailure :: Dynamics.ValidationFailure -> IO ()
+    printFailure (Dynamics.WorkspaceBoundsViolation idx state pt violation) =
+      putStrLn $ "  State #" ++ show idx ++ " at ("
+                ++ show (Dynamics.stateX state) ++ ", "
+                ++ show (Dynamics.stateY state) ++ ", θ="
+                ++ show (Dynamics.stateTheta state) ++ "): "
+                ++ "robot point " ++ show pt ++ " - " ++ violation
+    printFailure (Dynamics.ObstacleCollision idx state pt obstacle) =
+      putStrLn $ "  State #" ++ show idx ++ " at ("
+                ++ show (Dynamics.stateX state) ++ ", "
+                ++ show (Dynamics.stateY state) ++ ", θ="
+                ++ show (Dynamics.stateTheta state) ++ "): "
+                ++ "robot point " ++ show pt ++ " collides with obstacle at ("
+                ++ show (Types.obstacleX obstacle) ++ ", "
+                ++ show (Types.obstacleY obstacle) ++ ", r="
+                ++ show (Types.obstacleRadius obstacle) ++ ")"
 
     -- Convert Node to State5D
     nodeToState5D n = Dynamics.State5D
