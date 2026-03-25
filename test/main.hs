@@ -1,10 +1,10 @@
 module Main where
 
-import Test.HUnit
-import qualified Dynamics
-import qualified Types
+import Dynamics qualified
 import System.Exit (exitFailure, exitSuccess)
 import System.Random (mkStdGen)
+import Test.HUnit
+import Types qualified
 
 -------------------------------------------------------------------------------
 -- Test Fixtures
@@ -16,29 +16,60 @@ testWorkspace = Types.Workspace (-50) 50 (-50) 50
 
 -- Simple robot shape (just a square)
 simpleRobot :: Dynamics.RobotShape
-simpleRobot = Dynamics.RobotShape
-  { Dynamics.shapePoints = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
-  , Dynamics.shapeHull = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
-  }
+simpleRobot =
+  Dynamics.RobotShape
+    { Dynamics.shapePoints = [(1, 1), (1, -1), (-1, -1), (-1, 1)],
+      Dynamics.shapeHull = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
+    }
 
 -- Actual robot from robot.txt
 actualRobotPoints :: [(Double, Double)]
 actualRobotPoints =
-  [ (0.0, 0.0), (0.1, 0.0), (0.2, 0.0), (0.3, 0.0), (0.4, 0.0)
-  , (0.5, 0.0), (0.6, 0.0), (0.7, 0.0), (0.8, 0.0), (0.9, 0.0)
-  , (1.0, 0.0), (-0.1, 0.0), (-0.2, 0.0), (-0.3, 0.0), (-0.4, 0.0)
-  , (-0.5, 0.0), (-0.6, 0.0), (-0.7, 0.0), (-0.8, 0.0), (-0.9, 0.0)
-  , (-1.0, 0.0), (0.2, 0.1), (0.2, 0.2), (0.1, 0.3), (0.05, 0.4)
-  , (0.0, 0.5), (0.2, -0.1), (0.2, -0.2), (0.1, -0.3), (0.05, -0.4)
-  , (0.0, -0.5), (-0.8, 0.1), (-0.8, 0.2), (-0.8, 0.3), (-0.8, -0.1)
-  , (-0.8, -0.2), (-0.8, -0.3)
+  [ (0.0, 0.0),
+    (0.1, 0.0),
+    (0.2, 0.0),
+    (0.3, 0.0),
+    (0.4, 0.0),
+    (0.5, 0.0),
+    (0.6, 0.0),
+    (0.7, 0.0),
+    (0.8, 0.0),
+    (0.9, 0.0),
+    (1.0, 0.0),
+    (-0.1, 0.0),
+    (-0.2, 0.0),
+    (-0.3, 0.0),
+    (-0.4, 0.0),
+    (-0.5, 0.0),
+    (-0.6, 0.0),
+    (-0.7, 0.0),
+    (-0.8, 0.0),
+    (-0.9, 0.0),
+    (-1.0, 0.0),
+    (0.2, 0.1),
+    (0.2, 0.2),
+    (0.1, 0.3),
+    (0.05, 0.4),
+    (0.0, 0.5),
+    (0.2, -0.1),
+    (0.2, -0.2),
+    (0.1, -0.3),
+    (0.05, -0.4),
+    (0.0, -0.5),
+    (-0.8, 0.1),
+    (-0.8, 0.2),
+    (-0.8, 0.3),
+    (-0.8, -0.1),
+    (-0.8, -0.2),
+    (-0.8, -0.3)
   ]
 
 actualRobot :: Dynamics.RobotShape
-actualRobot = Dynamics.RobotShape
-  { Dynamics.shapePoints = actualRobotPoints
-  , Dynamics.shapeHull = Dynamics.convexHull actualRobotPoints
-  }
+actualRobot =
+  Dynamics.RobotShape
+    { Dynamics.shapePoints = actualRobotPoints,
+      Dynamics.shapeHull = Dynamics.convexHull actualRobotPoints
+    }
 
 -- Empty obstacle list
 noObstacles :: [Types.Obstacle]
@@ -55,7 +86,7 @@ singleObstacle = [Types.Obstacle 0 0 5]
 testRobotBoundingRadiusSimple :: Test
 testRobotBoundingRadiusSimple = TestCase $ do
   let radius = Dynamics.robotBoundingRadius simpleRobot
-      expected = sqrt 2  -- distance from origin to (1, 1)
+      expected = sqrt 2 -- distance from origin to (1, 1)
   assertBool "Simple robot bounding radius should be sqrt(2)" $
     abs (radius - expected) < 0.001
 
@@ -66,32 +97,47 @@ testRobotBoundingRadiusActual = TestCase $ do
   assertEqual "Actual robot bounding radius" 1.0 radius
 
 testPointInWorkspace :: Test
-testPointInWorkspace = TestList
-  [ TestCase $ assertBool "Point inside workspace" $
-      Dynamics.pointInWorkspace (0, 0) testWorkspace
-  , TestCase $ assertBool "Point at workspace boundary (min)" $
-      Dynamics.pointInWorkspace (-50, -50) testWorkspace
-  , TestCase $ assertBool "Point at workspace boundary (max)" $
-      Dynamics.pointInWorkspace (50, 50) testWorkspace
-  , TestCase $ assertBool "Point outside workspace (x too low)" $
-      not $ Dynamics.pointInWorkspace (-51, 0) testWorkspace
-  , TestCase $ assertBool "Point outside workspace (x too high)" $
-      not $ Dynamics.pointInWorkspace (51, 0) testWorkspace
-  , TestCase $ assertBool "Point outside workspace (y too low)" $
-      not $ Dynamics.pointInWorkspace (0, -51) testWorkspace
-  , TestCase $ assertBool "Point outside workspace (y too high)" $
-      not $ Dynamics.pointInWorkspace (0, 51) testWorkspace
-  ]
+testPointInWorkspace =
+  TestList
+    [ TestCase $
+        assertBool "Point inside workspace" $
+          Dynamics.pointInWorkspace (0, 0) testWorkspace,
+      TestCase $
+        assertBool "Point at workspace boundary (min)" $
+          Dynamics.pointInWorkspace (-50, -50) testWorkspace,
+      TestCase $
+        assertBool "Point at workspace boundary (max)" $
+          Dynamics.pointInWorkspace (50, 50) testWorkspace,
+      TestCase $
+        assertBool "Point outside workspace (x too low)" $
+          not $
+            Dynamics.pointInWorkspace (-51, 0) testWorkspace,
+      TestCase $
+        assertBool "Point outside workspace (x too high)" $
+          not $
+            Dynamics.pointInWorkspace (51, 0) testWorkspace,
+      TestCase $
+        assertBool "Point outside workspace (y too low)" $
+          not $
+            Dynamics.pointInWorkspace (0, -51) testWorkspace,
+      TestCase $
+        assertBool "Point outside workspace (y too high)" $
+          not $
+            Dynamics.pointInWorkspace (0, 51) testWorkspace
+    ]
 
 testAngleDiff :: Test
-testAngleDiff = TestList
-  [ TestCase $ assertEqual "Same angle" 0.0 (Dynamics.angleDiff 0 0)
-  , TestCase $ assertEqual "90 degrees" (pi/2) (Dynamics.angleDiff 0 (pi/2))
-  , TestCase $ assertBool "Wraparound (small to large)" $
-      abs (Dynamics.angleDiff 0.1 (2*pi - 0.1) - 0.2) < 0.001
-  , TestCase $ assertBool "Wraparound (large to small)" $
-      abs (Dynamics.angleDiff (2*pi - 0.1) 0.1 - 0.2) < 0.001
-  ]
+testAngleDiff =
+  TestList
+    [ TestCase $ assertEqual "Same angle" 0.0 (Dynamics.angleDiff 0 0),
+      TestCase $ assertEqual "90 degrees" (pi / 2) (Dynamics.angleDiff 0 (pi / 2)),
+      TestCase $
+        assertBool "Wraparound (small to large)" $
+          abs (Dynamics.angleDiff 0.1 (2 * pi - 0.1) - 0.2) < 0.001,
+      TestCase $
+        assertBool "Wraparound (large to small)" $
+          abs (Dynamics.angleDiff (2 * pi - 0.1) 0.1 - 0.2) < 0.001
+    ]
 
 -------------------------------------------------------------------------------
 -- Collision and Workspace Tests
@@ -111,12 +157,14 @@ testStateAtWorkspaceBoundary = TestCase $ do
   -- At x = -50, robot extends to x = -50 - 1.414 ≈ -51.414 (INVALID)
   let stateTooFarLeft = Dynamics.State5D (-50) 0 0 0 0
   assertBool "Robot at x=-50 should violate workspace (simple)" $
-    not $ Dynamics.stateCollisionFree stateTooFarLeft simpleRobot noObstacles testWorkspace
+    not $
+      Dynamics.stateCollisionFree stateTooFarLeft simpleRobot noObstacles testWorkspace
 
   -- Actual robot with bounding radius 1.0
   -- At x = -50, robot extends to x = -51 (INVALID)
   assertBool "Robot at x=-50 should violate workspace (actual)" $
-    not $ Dynamics.stateCollisionFree stateTooFarLeft actualRobot noObstacles testWorkspace
+    not $
+      Dynamics.stateCollisionFree stateTooFarLeft actualRobot noObstacles testWorkspace
 
   -- At x = -49, robot extends to x = -50 (VALID)
   let stateJustInside = Dynamics.State5D (-49) 0 0 0 0
@@ -126,13 +174,13 @@ testStateAtWorkspaceBoundary = TestCase $ do
 testStateValidationVsCollisionCheck :: Test
 testStateValidationVsCollisionCheck = TestCase $ do
   -- Test that validateState (all points) is at least as strict as stateCollisionFree (hull only)
-  let state = Dynamics.State5D (-49.5) 0 (pi/4) 0 0
+  let state = Dynamics.State5D (-49.5) 0 (pi / 4) 0 0
       hullCheck = Dynamics.stateCollisionFree state actualRobot noObstacles testWorkspace
       fullCheck = Dynamics.validateState state actualRobot noObstacles testWorkspace
   -- If hull check fails, full check must fail
   -- If hull check passes, full check may pass or fail (it's stricter)
   assertBool "Full validation should be at least as strict as hull check" $
-    not hullCheck || fullCheck || not fullCheck  -- This is always true, but documents the relationship
+    not hullCheck || fullCheck || not fullCheck -- This is always true, but documents the relationship
 
 testProblem03GoalFeasibility :: Test
 testProblem03GoalFeasibility = TestCase $ do
@@ -150,29 +198,31 @@ testProblem03GoalFeasibility = TestCase $ do
   -- Test a position at the workspace edge (INVALID)
   let edgeState = Dynamics.State5D (-50) (-30) 0 0 0
   assertBool "Position at x=-50, y=-30 should violate workspace bounds" $
-    not $ Dynamics.stateCollisionFree edgeState actualRobot noObstacles testWorkspace
+    not $
+      Dynamics.stateCollisionFree edgeState actualRobot noObstacles testWorkspace
 
 -------------------------------------------------------------------------------
 -- Transform Tests
 -------------------------------------------------------------------------------
 
 testTransformPoint :: Test
-testTransformPoint = TestList
-  [ TestCase $ do
-      -- Identity transform
-      let p' = Dynamics.transformPoint 0 0 0 (1, 0)
-      assertEqual "Identity transform" (1.0, 0.0) p'
-  , TestCase $ do
-      -- Translation
-      let p' = Dynamics.transformPoint 5 10 0 (1, 0)
-      assertEqual "Translation" (6.0, 10.0) p'
-  , TestCase $ do
-      -- 90 degree rotation
-      let p' = Dynamics.transformPoint 0 0 (pi/2) (1, 0)
-          (x, y) = p'
-      assertBool "90 degree rotation" $
-        abs x < 0.001 && abs (y - 1.0) < 0.001
-  ]
+testTransformPoint =
+  TestList
+    [ TestCase $ do
+        -- Identity transform
+        let p' = Dynamics.transformPoint 0 0 0 (1, 0)
+        assertEqual "Identity transform" (1.0, 0.0) p',
+      TestCase $ do
+        -- Translation
+        let p' = Dynamics.transformPoint 5 10 0 (1, 0)
+        assertEqual "Translation" (6.0, 10.0) p',
+      TestCase $ do
+        -- 90 degree rotation
+        let p' = Dynamics.transformPoint 0 0 (pi / 2) (1, 0)
+            (x, y) = p'
+        assertBool "90 degree rotation" $
+          abs x < 0.001 && abs (y - 1.0) < 0.001
+    ]
 
 -------------------------------------------------------------------------------
 -- Dynamics and Integration Tests
@@ -213,7 +263,7 @@ testIntegrationStraightLine = TestCase $ do
 testSubsampleTrajectory :: Test
 testSubsampleTrajectory = TestCase $ do
   -- Create trajectory with widely spaced states
-  let states = [ Dynamics.State5D (fromIntegral i) 0 0 0 0 | i <- [0..10::Int] ]
+  let states = [Dynamics.State5D (fromIntegral i) 0 0 0 0 | i <- [0 .. 10 :: Int]]
       -- States are 1.0 apart, subsample to 0.5
       subsampled = Dynamics.subsampleTrajectory 0.5 states
   -- Should have approximately double the points
@@ -227,29 +277,31 @@ testSubsampleTrajectory = TestCase $ do
 testTrajectoryInEmptyWorkspace :: Test
 testTrajectoryInEmptyWorkspace = TestCase $ do
   -- Simple straight-line trajectory in center of workspace
-  let states = [ Dynamics.State5D x 0 0 0 0 | x <- [-10, -5..10] ]
+  let states = [Dynamics.State5D x 0 0 0 0 | x <- [-10, -5 .. 10]]
   assertBool "Straight line trajectory should be valid" $
     Dynamics.trajectoryCollisionFree states actualRobot noObstacles testWorkspace
 
 testTrajectoryCollidesWithObstacle :: Test
 testTrajectoryCollidesWithObstacle = TestCase $ do
   -- Trajectory passes through obstacle at (0, 0, r=5)
-  let states = [ Dynamics.State5D x 0 0 0 0 | x <- [-10, -5..10] ]
+  let states = [Dynamics.State5D x 0 0 0 0 | x <- [-10, -5 .. 10]]
   assertBool "Trajectory through obstacle should be invalid" $
-    not $ Dynamics.trajectoryCollisionFree states actualRobot singleObstacle testWorkspace
+    not $
+      Dynamics.trajectoryCollisionFree states actualRobot singleObstacle testWorkspace
 
 testTrajectoryLeavesWorkspace :: Test
 testTrajectoryLeavesWorkspace = TestCase $ do
   -- Trajectory goes outside workspace
-  let states = [ Dynamics.State5D x 0 0 0 0 | x <- [-45, -46..(-55)] ]
+  let states = [Dynamics.State5D x 0 0 0 0 | x <- [-45, -46 .. (-55)]]
   assertBool "Trajectory leaving workspace should be invalid" $
-    not $ Dynamics.trajectoryCollisionFree states actualRobot noObstacles testWorkspace
+    not $
+      Dynamics.trajectoryCollisionFree states actualRobot noObstacles testWorkspace
 
 testValidateFinalPathStricter :: Test
 testValidateFinalPathStricter = TestCase $ do
   -- Create a state near the workspace edge that might pass hull check
   -- but fail full validation with all 37 points
-  let state = Dynamics.State5D (-49.2) 0 (pi/4) 0 0
+  let state = Dynamics.State5D (-49.2) 0 (pi / 4) 0 0
       states = [state]
       hullValid = Dynamics.trajectoryCollisionFree states actualRobot noObstacles testWorkspace
       fullValid = Dynamics.validateFinalPath states actualRobot noObstacles testWorkspace
@@ -312,8 +364,8 @@ testSteerDistanceConstraint :: Test
 testSteerDistanceConstraint = TestCase $ do
   -- Steering should respect epsilon distance constraint
   let start = Dynamics.State5D 0 0 0 0 0
-      goal = Dynamics.State5D 100 0 0 0 0  -- Far away
-      epsilon = 5.0  -- Small epsilon
+      goal = Dynamics.State5D 100 0 0 0 0 -- Far away
+      epsilon = 5.0 -- Small epsilon
       gen = mkStdGen 42
       result = Dynamics.steer start goal epsilon actualRobot noObstacles testWorkspace gen
   case result of
@@ -322,60 +374,71 @@ testSteerDistanceConstraint = TestCase $ do
       let finalState = last traj
           dist = Dynamics.distState5D start finalState
       assertBool "Final state should be within reasonable distance of epsilon" $
-        dist <= epsilon * 1.5  -- Allow some tolerance
+        dist <= epsilon * 1.5 -- Allow some tolerance
 
 -------------------------------------------------------------------------------
 -- Test Suite
 -------------------------------------------------------------------------------
 
 geometryTests :: Test
-geometryTests = TestLabel "Geometry Tests" $ TestList
-  [ TestLabel "Robot bounding radius (simple)" testRobotBoundingRadiusSimple
-  , TestLabel "Robot bounding radius (actual)" testRobotBoundingRadiusActual
-  , TestLabel "Point in workspace" testPointInWorkspace
-  , TestLabel "Angle difference" testAngleDiff
-  , TestLabel "Transform point" testTransformPoint
-  ]
+geometryTests =
+  TestLabel "Geometry Tests" $
+    TestList
+      [ TestLabel "Robot bounding radius (simple)" testRobotBoundingRadiusSimple,
+        TestLabel "Robot bounding radius (actual)" testRobotBoundingRadiusActual,
+        TestLabel "Point in workspace" testPointInWorkspace,
+        TestLabel "Angle difference" testAngleDiff,
+        TestLabel "Transform point" testTransformPoint
+      ]
 
 workspaceTests :: Test
-workspaceTests = TestLabel "Workspace Bounds Tests" $ TestList
-  [ TestLabel "State at center" testStateInWorkspaceCenter
-  , TestLabel "State at boundary" testStateAtWorkspaceBoundary
-  , TestLabel "Validation vs collision check" testStateValidationVsCollisionCheck
-  , TestLabel "Problem 03 goal feasibility" testProblem03GoalFeasibility
-  ]
+workspaceTests =
+  TestLabel "Workspace Bounds Tests" $
+    TestList
+      [ TestLabel "State at center" testStateInWorkspaceCenter,
+        TestLabel "State at boundary" testStateAtWorkspaceBoundary,
+        TestLabel "Validation vs collision check" testStateValidationVsCollisionCheck,
+        TestLabel "Problem 03 goal feasibility" testProblem03GoalFeasibility
+      ]
 
 dynamicsTests :: Test
-dynamicsTests = TestLabel "Dynamics and Integration Tests" $ TestList
-  [ TestLabel "Car dynamics" testCarDynamics
-  , TestLabel "Integration straight line" testIntegrationStraightLine
-  , TestLabel "Subsample trajectory" testSubsampleTrajectory
-  ]
+dynamicsTests =
+  TestLabel "Dynamics and Integration Tests" $
+    TestList
+      [ TestLabel "Car dynamics" testCarDynamics,
+        TestLabel "Integration straight line" testIntegrationStraightLine,
+        TestLabel "Subsample trajectory" testSubsampleTrajectory
+      ]
 
 trajectoryTests :: Test
-trajectoryTests = TestLabel "Trajectory Validation Tests" $ TestList
-  [ TestLabel "Trajectory in empty workspace" testTrajectoryInEmptyWorkspace
-  , TestLabel "Trajectory collides with obstacle" testTrajectoryCollidesWithObstacle
-  , TestLabel "Trajectory leaves workspace" testTrajectoryLeavesWorkspace
-  , TestLabel "validateFinalPath stricter than collision check" testValidateFinalPathStricter
-  ]
+trajectoryTests =
+  TestLabel "Trajectory Validation Tests" $
+    TestList
+      [ TestLabel "Trajectory in empty workspace" testTrajectoryInEmptyWorkspace,
+        TestLabel "Trajectory collides with obstacle" testTrajectoryCollidesWithObstacle,
+        TestLabel "Trajectory leaves workspace" testTrajectoryLeavesWorkspace,
+        TestLabel "validateFinalPath stricter than collision check" testValidateFinalPathStricter
+      ]
 
 steeringTests :: Test
-steeringTests = TestLabel "Steering Function Tests" $ TestList
-  [ TestLabel "Steer in empty space" testSteerInEmptySpace
-  , TestLabel "Steer respects workspace bounds" testSteerRespectsWorkspaceBounds
-  , TestLabel "Steer avoids obstacles" testSteerAvoidsObstacles
-  , TestLabel "Steer distance constraint" testSteerDistanceConstraint
-  ]
+steeringTests =
+  TestLabel "Steering Function Tests" $
+    TestList
+      [ TestLabel "Steer in empty space" testSteerInEmptySpace,
+        TestLabel "Steer respects workspace bounds" testSteerRespectsWorkspaceBounds,
+        TestLabel "Steer avoids obstacles" testSteerAvoidsObstacles,
+        TestLabel "Steer distance constraint" testSteerDistanceConstraint
+      ]
 
 allTests :: Test
-allTests = TestList
-  [ geometryTests
-  , workspaceTests
-  , dynamicsTests
-  , trajectoryTests
-  , steeringTests
-  ]
+allTests =
+  TestList
+    [ geometryTests,
+      workspaceTests,
+      dynamicsTests,
+      trajectoryTests,
+      steeringTests
+    ]
 
 -------------------------------------------------------------------------------
 -- Main

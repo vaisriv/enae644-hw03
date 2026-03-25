@@ -121,9 +121,12 @@ inWorkspace (x, y) ws =
 nearestNode5D :: Dynamics.State5D -> Graphs.Graph -> Graphs.Node
 nearestNode5D qstate g =
   Data.List.minimumBy
-    (comparing (\n ->
-      let nstate = Dynamics.State5D (Graphs.nodeX n) (Graphs.nodeY n) (Graphs.nodeTheta n) (Graphs.nodeV n) (Graphs.nodeW n)
-       in Dynamics.distState5D qstate nstate))
+    ( comparing
+        ( \n ->
+            let nstate = Dynamics.State5D (Graphs.nodeX n) (Graphs.nodeY n) (Graphs.nodeTheta n) (Graphs.nodeV n) (Graphs.nodeW n)
+             in Dynamics.distState5D qstate nstate
+        )
+    )
     (Map.elems (Graphs.graphNodes g))
 
 -- | find the nearest node in the graph to a query point (legacy 2D version)
@@ -168,7 +171,7 @@ rrt problem maxIter gen = do
   putStrLn "RRT search started..."
   go initGraph gen 0 0
   where
-    reportInterval = 500  -- Report every 500 iterations
+    reportInterval = 500 -- Report every 500 iterations
     ws = problemWorkspace problem
     goal = problemGoal problem
     obs = problemObstacles problem
@@ -187,44 +190,54 @@ rrt problem maxIter gen = do
           when (iter > 0 && iter `mod` reportInterval == 0) $ do
             let nodes = Map.size (Graphs.graphNodes g)
                 successRate = if iter > 0 then (100.0 * fromIntegral steerSuccesses / fromIntegral iter :: Double) else 0.0
-            putStr $ "\rIter: " ++ show iter ++ "/" ++ show maxIter
-                  ++ " | Nodes: " ++ show nodes
-                  ++ " | Steering success: " ++ show (round successRate :: Int) ++ "%"
+            putStr $
+              "\rIter: "
+                ++ show iter
+                ++ "/"
+                ++ show maxIter
+                ++ " | Nodes: "
+                ++ show nodes
+                ++ " | Steering success: "
+                ++ show (round successRate :: Int)
+                ++ "%"
             hFlush stdout
           -- 1. sample a random 5D state (10% goal biasing)
           let (biasRoll, gen1) = randomR (0.0 :: Double, 1.0 :: Double) gen'
-              (qrand, gen2) = if biasRoll < 0.1
-                              then sampleGoalState gen1
-                              else sampleRandomState gen1
+              (qrand, gen2) =
+                if biasRoll < 0.1
+                  then sampleGoalState gen1
+                  else sampleRandomState gen1
               -- 2. find nearest node in tree using 5D distance
               nearest = nearestNode5D qrand g
-              nearestState = Dynamics.State5D
-                (Graphs.nodeX nearest)
-                (Graphs.nodeY nearest)
-                (Graphs.nodeTheta nearest)
-                (Graphs.nodeV nearest)
-                (Graphs.nodeW nearest)
-              -- 3. steer from nearest toward sample using dynamics
-           in case Dynamics.steer nearestState qrand eps robot obs ws gen2 of
+              nearestState =
+                Dynamics.State5D
+                  (Graphs.nodeX nearest)
+                  (Graphs.nodeY nearest)
+                  (Graphs.nodeTheta nearest)
+                  (Graphs.nodeV nearest)
+                  (Graphs.nodeW nearest)
+           in -- 3. steer from nearest toward sample using dynamics
+              case Dynamics.steer nearestState qrand eps robot obs ws gen2 of
                 Nothing -> go g gen2 (iter + 1) steerSuccesses -- steering failed
                 Just ((states, ctrl, duration), gen3) -> do
                   -- 4. trajectory is already collision-checked in steer
                   -- 5. add new node with final state from trajectory
                   let finalState = last states
                       (a, gamma) = ctrl
-                      (g', newId) = Graphs.addNode
-                        (Dynamics.stateX finalState)
-                        (Dynamics.stateY finalState)
-                        (Dynamics.stateTheta finalState)
-                        (Dynamics.stateV finalState)
-                        (Dynamics.stateW finalState)
-                        (Just (Graphs.nodeId nearest))
-                        (Just ctrl)
-                        (Just duration)
-                        g
+                      (g', newId) =
+                        Graphs.addNode
+                          (Dynamics.stateX finalState)
+                          (Dynamics.stateY finalState)
+                          (Dynamics.stateTheta finalState)
+                          (Dynamics.stateV finalState)
+                          (Dynamics.stateW finalState)
+                          (Just (Graphs.nodeId nearest))
+                          (Just ctrl)
+                          (Just duration)
+                          g
                    in -- 6. check goal (position must be in goal region AND robot must fit in workspace)
                       if inGoal (Dynamics.stateX finalState, Dynamics.stateY finalState) goal
-                         && robotFitsInWorkspace (Dynamics.stateX finalState) (Dynamics.stateY finalState)
+                        && robotFitsInWorkspace (Dynamics.stateX finalState) (Dynamics.stateY finalState)
                         then do
                           putStrLn $ "\n\nGoal reached at iteration " ++ show iter ++ "!"
                           let path = Graphs.pathToRoot newId g'
@@ -242,7 +255,8 @@ rrt problem maxIter gen = do
                               let firstFailures = take 3 failures
                               mapM_ printFailure firstFailures
                               when (length failures > 3) $
-                                putStrLn $ "  ... and " ++ show (length failures - 3) ++ " more violations"
+                                putStrLn $
+                                  "  ... and " ++ show (length failures - 3) ++ " more violations"
                               go g' gen3 (iter + 1) (steerSuccesses + 1) -- path validation failed
                         else go g' gen3 (iter + 1) (steerSuccesses + 1)
 
@@ -252,7 +266,7 @@ rrt problem maxIter gen = do
           (y, gen2) = randomR (workspaceYMin ws, workspaceYMax ws) gen1
           (theta, gen3) = randomR (0.0, 2 * pi) gen2
           (v, gen4) = randomR (-5.0, 5.0) gen3
-          (w, gen5) = randomR (-pi/2, pi/2) gen4
+          (w, gen5) = randomR (-pi / 2, pi / 2) gen4
        in (Dynamics.State5D x y theta v w, gen5)
 
     -- Sample state in goal region (with random velocities)
@@ -266,7 +280,7 @@ rrt problem maxIter gen = do
           yMax = workspaceYMax ws - robotRadius
           -- Try to sample a feasible goal state (max 20 attempts)
           trySampleGoal gen n
-            | n >= 20 = sampleRandomState gen  -- Fallback to random sampling
+            | n >= 20 = sampleRandomState gen -- Fallback to random sampling
             | otherwise =
                 let (angle, gen1) = randomR (0.0, 2 * pi) gen
                     (radius, gen2) = randomR (0.0, goalRadius goal) gen1
@@ -276,7 +290,7 @@ rrt problem maxIter gen = do
                       then
                         let (theta, gen3) = randomR (0.0, 2 * pi) gen2
                             (v, gen4) = randomR (-5.0, 5.0) gen3
-                            (w, gen5) = randomR (-pi/2, pi/2) gen4
+                            (w, gen5) = randomR (-pi / 2, pi / 2) gen4
                          in (Dynamics.State5D x y theta v w, gen5)
                       else trySampleGoal gen2 (n + 1)
        in trySampleGoal gen0 0
@@ -295,12 +309,12 @@ rrt problem maxIter gen = do
     reconstructPathTrajectories :: [Graphs.Node] -> [Dynamics.State5D]
     reconstructPathTrajectories nodes = case nodes of
       [] -> []
-      [n] -> [nodeToState5D n]  -- Just the root node
+      [n] -> [nodeToState5D n] -- Just the root node
       (parent : child : rest) ->
         let parentState = nodeToState5D parent
             childControl = fromMaybe (0, 0) (Graphs.nodeControl child)
             childDuration = fromMaybe 0.0 (Graphs.nodeDuration child)
-            dt = 0.01  -- same dt as used in steering
+            dt = 0.01 -- same dt as used in steering
             trajectory = Dynamics.integrateTrajectory dt parentState childControl childDuration
             -- Remove last point to avoid duplication with next segment
             trajectorySegment = if null trajectory then [] else init trajectory
@@ -309,25 +323,60 @@ rrt problem maxIter gen = do
     -- Print validation failure for diagnostics
     printFailure :: Dynamics.ValidationFailure -> IO ()
     printFailure (Dynamics.WorkspaceBoundsViolation idx state pt violation) =
-      putStrLn $ "  State #" ++ show idx ++ " at ("
-                ++ show (Dynamics.stateX state) ++ ", "
-                ++ show (Dynamics.stateY state) ++ ", θ="
-                ++ show (Dynamics.stateTheta state) ++ "): "
-                ++ "robot point " ++ show pt ++ " - " ++ violation
+      putStrLn $
+        "  State #"
+          ++ show idx
+          ++ " at ("
+          ++ show (Dynamics.stateX state)
+          ++ ", "
+          ++ show (Dynamics.stateY state)
+          ++ ", θ="
+          ++ show (Dynamics.stateTheta state)
+          ++ "): "
+          ++ "robot point "
+          ++ show pt
+          ++ " - "
+          ++ violation
     printFailure (Dynamics.ObstacleCollision idx state pt obstacle) =
-      putStrLn $ "  State #" ++ show idx ++ " at ("
-                ++ show (Dynamics.stateX state) ++ ", "
-                ++ show (Dynamics.stateY state) ++ ", θ="
-                ++ show (Dynamics.stateTheta state) ++ "): "
-                ++ "robot point " ++ show pt ++ " collides with obstacle at ("
-                ++ show (Types.obstacleX obstacle) ++ ", "
-                ++ show (Types.obstacleY obstacle) ++ ", r="
-                ++ show (Types.obstacleRadius obstacle) ++ ")"
+      putStrLn $
+        "  State #"
+          ++ show idx
+          ++ " at ("
+          ++ show (Dynamics.stateX state)
+          ++ ", "
+          ++ show (Dynamics.stateY state)
+          ++ ", θ="
+          ++ show (Dynamics.stateTheta state)
+          ++ "): "
+          ++ "robot point "
+          ++ show pt
+          ++ " collides with obstacle at ("
+          ++ show (Types.obstacleX obstacle)
+          ++ ", "
+          ++ show (Types.obstacleY obstacle)
+          ++ ", r="
+          ++ show (Types.obstacleRadius obstacle)
+          ++ ")"
+    printFailure (Dynamics.VelocityConstraintViolation idx state vtype value limit) =
+      putStrLn $
+        "  State #"
+          ++ show idx
+          ++ " at ("
+          ++ show (Dynamics.stateX state)
+          ++ ", "
+          ++ show (Dynamics.stateY state)
+          ++ "): "
+          ++ vtype
+          ++ " = "
+          ++ show value
+          ++ " exceeds limit "
+          ++ show limit
 
     -- Convert Node to State5D
-    nodeToState5D n = Dynamics.State5D
-      (Graphs.nodeX n)
-      (Graphs.nodeY n)
-      (Graphs.nodeTheta n)
-      (Graphs.nodeV n)
-      (Graphs.nodeW n)
+    nodeToState5D n =
+      Dynamics.State5D
+        (Graphs.nodeX n)
+        (Graphs.nodeY n)
+        (Graphs.nodeTheta n)
+        (Graphs.nodeV n)
+        (Graphs.nodeW n)

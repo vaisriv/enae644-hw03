@@ -21,6 +21,8 @@ module Dynamics
     pointClearOfCircle,
     stateCollisionFree,
     validateState,
+    stateVelocityValid,
+    trajectoryVelocityValid,
     trajectoryCollisionFree,
     validateFinalPath,
     validateFinalPathWithDiagnostics,
@@ -30,8 +32,8 @@ module Dynamics
 where
 
 import Data.List (minimum, sortBy)
-import qualified System.Random
-import qualified Types (Obstacle (..), Workspace (..))
+import System.Random qualified
+import Types qualified (Obstacle (..), Workspace (..))
 
 -------------------------------------------------------------------------------
 -- Types
@@ -74,6 +76,13 @@ data ValidationFailure
         failureState :: State5D,
         collidingPoint :: (Double, Double),
         collidingObstacle :: Types.Obstacle
+      }
+  | VelocityConstraintViolation
+      { failureStateIndex :: Int,
+        failureState :: State5D,
+        velocityViolationType :: String,
+        violationValue :: Double,
+        violationLimit :: Double
       }
   deriving (Show)
 
@@ -132,9 +141,8 @@ integrateRK4 dt state ctrl =
           (stateW state + dt * dw3)
       (dx4, dy4, dtheta4, dv4, dw4) = carDynamics state4 ctrl
       k4 = State5D dx4 dy4 dtheta4 dv4 dw4
-
-      -- y_next = y + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
-   in State5D
+   in -- y_next = y + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+      State5D
         (stateX state + dt / 6 * (dx1 + 2 * dx2 + 2 * dx3 + dx4))
         (stateY state + dt / 6 * (dy1 + 2 * dy2 + 2 * dy3 + dy4))
         (stateTheta state + dt / 6 * (dtheta1 + 2 * dtheta2 + 2 * dtheta3 + dtheta4))
@@ -221,8 +229,8 @@ convexHull points
           p0 = minimum points
           -- sort points by polar angle with respect to p0
           sorted = sortByAngle p0 (filter (/= p0) points)
-          -- build convex hull using Graham scan
-       in grahamScan [p0] sorted
+       in -- build convex hull using Graham scan
+          grahamScan [p0] sorted
   where
     sortByAngle p0 pts =
       let angleFrom (x1, y1) (x2, y2) = atan2 (y2 - y1) (x2 - x1)
@@ -273,11 +281,23 @@ validateState state robot obstacles workspace =
   let transformedAll = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapePoints robot)
    in all (\pt -> pointInWorkspace pt workspace && all (pointClearOfCircle pt) obstacles) transformedAll
 
+-- | check if state satisfies velocity constraints
+stateVelocityValid :: State5D -> Bool
+stateVelocityValid state =
+  let vMax = 5.0
+      wMax = pi / 2
+   in abs (stateV state) <= vMax && abs (stateW state) <= wMax
+
+-- | check if trajectory satisfies velocity constraints
+trajectoryVelocityValid :: [State5D] -> Bool
+trajectoryVelocityValid = all stateVelocityValid
+
 -- | check if trajectory is collision-free using convex hull
 trajectoryCollisionFree :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
 trajectoryCollisionFree states robot obstacles workspace =
   let subsampled = subsampleTrajectory 0.5 states
-   in all (\s -> stateCollisionFree s robot obstacles workspace) subsampled
+   in trajectoryVelocityValid subsampled
+        && all (\s -> stateCollisionFree s robot obstacles workspace) subsampled
 
 -- | validate final path using all robot points
 validateFinalPath :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
@@ -296,19 +316,32 @@ validateFinalPathWithDiagnostics states robot obstacles workspace =
   where
     checkStateForFailures :: RobotShape -> [Types.Obstacle] -> Types.Workspace -> (Int, State5D) -> [ValidationFailure]
     checkStateForFailures rob obs ws (idx, state) =
-      let transformedPoints = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapePoints rob)
+      let -- Check velocity constraints
+          vMax = 5.0
+          wMax = pi / 2
+          velocityFailures =
+            [ VelocityConstraintViolation idx state "linear velocity" (stateV state) vMax
+            | abs (stateV state) > vMax
+            ]
+              ++ [ VelocityConstraintViolation idx state "angular velocity" (stateW state) wMax
+                 | abs (stateW state) > wMax
+                 ]
+          -- Check spatial constraints
+          transformedPoints = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapePoints rob)
           -- Check workspace bounds
-          workspaceFailures = [ WorkspaceBoundsViolation idx state pt (violationMessage pt ws)
-                              | pt <- transformedPoints
-                              , not (pointInWorkspace pt ws)
-                              ]
+          workspaceFailures =
+            [ WorkspaceBoundsViolation idx state pt (violationMessage pt ws)
+            | pt <- transformedPoints,
+              not (pointInWorkspace pt ws)
+            ]
           -- Check obstacle collisions
-          obstacleFailures = [ ObstacleCollision idx state pt ob
-                             | pt <- transformedPoints
-                             , ob <- obs
-                             , not (pointClearOfCircle pt ob)
-                             ]
-       in workspaceFailures ++ obstacleFailures
+          obstacleFailures =
+            [ ObstacleCollision idx state pt ob
+            | pt <- transformedPoints,
+              ob <- obs,
+              not (pointClearOfCircle pt ob)
+            ]
+       in velocityFailures ++ workspaceFailures ++ obstacleFailures
 
     violationMessage :: (Double, Double) -> Types.Workspace -> String
     violationMessage (x, y) ws
@@ -322,10 +355,50 @@ validateFinalPathWithDiagnostics states robot obstacles workspace =
 -- Steering Function (2P-BVP Solver)
 -------------------------------------------------------------------------------
 
+-- | Sample control inputs that respect velocity constraints
+--   Uses conservative estimate: limits (a, gamma) so velocities stay within bounds
+sampleFeasibleControl :: (System.Random.RandomGen g) => State5D -> Double -> g -> ((Double, Double), g)
+sampleFeasibleControl state duration gen =
+  let vMax = 5.0
+      wMax = pi / 2
+      aMax = 2.0
+      gammaMax = pi / 2
+
+      currentV = stateV state
+      currentW = stateW state
+
+      -- Conservative bound: |v + a*t| ≤ vMax
+      -- For safety, we want: -vMax ≤ v + a*t ≤ vMax
+      -- If v ≥ 0: need a*t ≤ vMax - v, so a ≤ (vMax - v) / t
+      -- If v < 0: need a*t ≥ -vMax - v, so a ≥ (-vMax - v) / t
+
+      aMaxForState =
+        if duration > 0.01
+          then min aMax ((vMax - abs currentV) / duration)
+          else aMax
+      aMinForState =
+        if duration > 0.01
+          then max (-aMax) ((-vMax + abs currentV) / duration)
+          else (-aMax)
+
+      gammaMaxForState =
+        if duration > 0.01
+          then min gammaMax ((wMax - abs currentW) / duration)
+          else gammaMax
+      gammaMinForState =
+        if duration > 0.01
+          then max (-gammaMax) ((-wMax + abs currentW) / duration)
+          else (-gammaMax)
+
+      -- Sample within constrained ranges
+      (a, g1) = System.Random.randomR (aMinForState, aMaxForState) gen
+      (gamma, g2) = System.Random.randomR (gammaMinForState, gammaMaxForState) g1
+   in ((a, gamma), g2)
+
 -- | steer from start state to goal state
 --   returns trajectory if successful, Nothing otherwise
 --   uses random shooting
-steer :: System.Random.RandomGen g => State5D -> State5D -> Double -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> g -> Maybe (Trajectory, g)
+steer :: (System.Random.RandomGen g) => State5D -> State5D -> Double -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> g -> Maybe (Trajectory, g)
 steer startState goalState epsilon robot obstacles workspace gen =
   let (bestTraj, gen') = tryRandomShooting numAttempts gen Nothing
    in case bestTraj of
@@ -342,11 +415,10 @@ steer startState goalState epsilon robot obstacles workspace gen =
 
     tryRandomShooting 0 g best = (best, g)
     tryRandomShooting n g best =
-      let -- Sample random control and duration
-          (a, g1) = System.Random.randomR (-aMax, aMax) g
-          (gamma, g2) = System.Random.randomR (-gammaMax, gammaMax) g1
-          (duration, g3) = System.Random.randomR (minDuration, maxDuration) g2
-          control = (a, gamma)
+      let -- Sample duration first, then velocity-aware control
+          (duration, g1) = System.Random.randomR (minDuration, maxDuration) g
+          (control, g2) = sampleFeasibleControl startState duration g1
+          g3 = g2
 
           -- Integrate trajectory
           states = integrateTrajectory dt startState control duration
@@ -359,12 +431,13 @@ steer startState goalState epsilon robot obstacles workspace gen =
           dist = distState5D finalState goalState
 
           -- Update best if this is better and collision-free
-          newBest = if collisionFree && dist < epsilon
-                    then case best of
-                           Nothing -> Just (states, control, duration)
-                           Just (_, _, _) ->
-                             if dist < epsilon / 2
-                             then Just (states, control, duration)
-                             else best
+          newBest =
+            if collisionFree && dist < epsilon
+              then case best of
+                Nothing -> Just (states, control, duration)
+                Just (_, _, _) ->
+                  if dist < epsilon / 2
+                    then Just (states, control, duration)
                     else best
+              else best
        in tryRandomShooting (n - 1) g3 newBest
