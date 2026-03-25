@@ -243,17 +243,33 @@ def draw_start(ax, start: tuple[float, float], theta: float) -> None:
 
 
 def draw_path(ax, path: list[PathNode]) -> None:
-    """draw the solution path as a bold line with a soft halo, node dots, and orientation arrows"""
+    """draw the solution path with curved trajectories following vehicle dynamics"""
     if not path:
         return
-    xs = [p.x for p in path]
-    ys = [p.y for p in path]
+
+    # Import dynamics module for curved trajectory computation
+    from rrtVis.dynamics import compute_curved_path
+
+    # Compute curved trajectory points using RK4 integration
+    curved_points = compute_curved_path(path, dt=0.01)
+
+    if not curved_points:
+        return
+
+    # Extract x, y coordinates for curved trajectory
+    xs_curve = [p[0] for p in curved_points]
+    ys_curve = [p[1] for p in curved_points]
+
+    # Draw curved trajectory with halo and main line
     # halo layer — wide, low-alpha pass for a subtle shadow effect on light bg
-    ax.plot(xs, ys, color=PATH_HALO, linewidth=5.0, alpha=0.08, zorder=6)
+    ax.plot(xs_curve, ys_curve, color=PATH_HALO, linewidth=5.0, alpha=0.08, zorder=6)
     # main path line
-    ax.plot(xs, ys, color=PATH_COL, linewidth=1.8, alpha=0.95, zorder=7)
-    # node dots
-    ax.scatter(xs, ys, color=PATH_COL, s=8, zorder=8)
+    ax.plot(xs_curve, ys_curve, color=PATH_COL, linewidth=1.8, alpha=0.95, zorder=7)
+
+    # Draw waypoint markers at original PathNode positions
+    xs_waypoints = [p.x for p in path]
+    ys_waypoints = [p.y for p in path]
+    ax.scatter(xs_waypoints, ys_waypoints, color=PATH_COL, s=8, zorder=8)
 
     # Draw orientation arrows at path waypoints (every 3rd point to avoid clutter)
     arrow_length = 2.0
