@@ -11,6 +11,7 @@ let
     };
     drv = myHaskellPackages.callCabal2nix "rrtSearch" (../../../.) { };
 in
-if doCheck
-then pkgs.haskell.lib.doBenchmark (pkgs.haskell.lib.doCheck drv)
-else pkgs.haskell.lib.dontCheck drv
+if doCheck then
+    pkgs.haskell.lib.doBenchmark (pkgs.haskell.lib.doCheck drv)
+else
+    pkgs.haskell.lib.dontCheck drv

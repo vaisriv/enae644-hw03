@@ -24,12 +24,12 @@
 - each point needs to be checked vs. obstacles
 - robot position:
     - $mat(
-        delim: "[",
-        x_1, y_1;
-        x_2, y_2;
-        dots.v, dots.v;
-        x_m, y_m;
-    )$
+            delim: "[",
+            x_1, y_1;
+            x_2, y_2;
+            dots.v, dots.v;
+            x_m, y_m;
+        )$
     - assuming center of robot is at $(x, y, theta) = (0, 0, 0)$
 - subsample along the trajectories you generate at a higher resolution:
     - for each edge, remember the trajectory associated with it at a resolution s.t. consecutive points are no further apart than the chosen $delta = 0.5$

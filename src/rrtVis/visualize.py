@@ -5,7 +5,6 @@ import matplotlib.figure
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.collections as mcollections
-import numpy as np
 
 from rrtVis.parse import Goal, Obstacle, Problem, TreeNode, PathNode, RobotShape
 
@@ -76,7 +75,9 @@ def render(
         # Draw robot at goal position with final orientation from path
         if path:
             final_pose = path[-1]
-            draw_robot_at_pose(ax_main, robot, final_pose.x, final_pose.y, final_pose.theta, alpha=0.5)
+            draw_robot_at_pose(
+                ax_main, robot, final_pose.x, final_pose.y, final_pose.theta, alpha=0.5
+            )
 
     # main axes styling
     ws = problem.workspace
@@ -315,7 +316,9 @@ def draw_error(ax, message: str) -> None:
     )
 
 
-def draw_robot_at_pose(ax, robot: RobotShape, x: float, y: float, theta: float, alpha: float = 0.3) -> None:
+def draw_robot_at_pose(
+    ax, robot: RobotShape, x: float, y: float, theta: float, alpha: float = 0.3
+) -> None:
     """draw robot shape at a given pose (x, y, theta) on the workspace"""
     import math
 
@@ -345,13 +348,22 @@ def draw_robot_shape(ax, robot: RobotShape) -> None:
     # Draw all points as scatter
     xs = [p[0] for p in robot.points]
     ys = [p[1] for p in robot.points]
-    ax.scatter(xs, ys, color=ROBOT_POINT, s=12, alpha=0.6, zorder=2, label="Robot points")
+    ax.scatter(
+        xs, ys, color=ROBOT_POINT, s=12, alpha=0.6, zorder=2, label="Robot points"
+    )
 
     # Draw convex hull as polygon
     if len(robot.hull) >= 3:
         hull_xs = [p[0] for p in robot.hull] + [robot.hull[0][0]]  # close the polygon
         hull_ys = [p[1] for p in robot.hull] + [robot.hull[0][1]]
-        ax.plot(hull_xs, hull_ys, color=ROBOT_HULL, linewidth=2.0, zorder=3, label="Convex hull")
+        ax.plot(
+            hull_xs,
+            hull_ys,
+            color=ROBOT_HULL,
+            linewidth=2.0,
+            zorder=3,
+            label="Convex hull",
+        )
         ax.fill(hull_xs, hull_ys, color=ROBOT_HULL_FILL, alpha=0.15, zorder=1)
 
     # Styling

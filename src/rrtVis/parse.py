@@ -112,14 +112,23 @@ def load_problem(data_dir: str, problem_num: str) -> Problem:
     )
     start = (float(d["start"]["x"]), float(d["start"]["y"]))
     import math
-    start_theta = float(d["start"]["theta_pi_rad"]) * math.pi  # convert from pi-radians to radians
+
+    start_theta = (
+        float(d["start"]["theta_pi_rad"]) * math.pi
+    )  # convert from pi-radians to radians
     goal = Goal(
         x=float(d["goal"]["x"]),
         y=float(d["goal"]["y"]),
         radius=float(d["goal"]["radius"]),
     )
     epsilon = float(d["motion"]["epsilon"])
-    return Problem(workspace=workspace, start=start, start_theta=start_theta, goal=goal, epsilon=epsilon)
+    return Problem(
+        workspace=workspace,
+        start=start,
+        start_theta=start_theta,
+        goal=goal,
+        epsilon=epsilon,
+    )
 
 
 def load_robot(data_dir: str) -> RobotShape:
