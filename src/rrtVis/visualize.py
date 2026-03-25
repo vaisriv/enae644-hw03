@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.collections as mcollections
 import numpy as np
 
-from rrtVis.parse import Goal, Obstacle, Problem, TreeNode, PathNode
+from rrtVis.parse import Goal, Obstacle, Problem, TreeNode, PathNode, RobotShape
 
 ###############################################################################
 # Palette
@@ -33,6 +33,9 @@ PATH_HALO = "#1a1a2e"  # path glow halo (same hue, controlled by alpha)
 ERROR_TEXT = "#a02020"  # error message text
 ERROR_BG = "#fff0f0"  # error message box background
 ERROR_EDGE = "#d9534f"  # error message box border
+ROBOT_POINT = "#3b5998"  # robot point cloud (medium blue)
+ROBOT_HULL = "#1a237e"  # robot hull boundary (dark blue)
+ROBOT_HULL_FILL = "#3b5998"  # robot hull fill (medium blue, with alpha)
 
 ###############################################################################
 # Rendering
@@ -44,41 +47,54 @@ def render(
     problem: Problem,
     tree: list[TreeNode],
     path: list[PathNode] | str,
+    robot: RobotShape,
 ) -> matplotlib.figure.Figure:
     """render the full RRT result into a matplotlib Figure and return it
 
     if `path` is a string it is treated as an error message and displayed
     as an annotation on the plot instead of drawing a path
     """
-    fig, ax = plt.subplots(figsize=(8, 8), facecolor=BG)
-    ax.set_facecolor(AXES_BG)
+    # Create figure with two subplots: main plot (left) and robot inset (right)
+    fig = plt.figure(figsize=(10, 8), facecolor=BG)
+    ax_main = plt.subplot2grid((1, 4), (0, 0), colspan=3, fig=fig)
+    ax_robot = plt.subplot2grid((1, 4), (0, 3), fig=fig)
 
-    # draw layers bottom-to-top
-    draw_workspace(ax, problem)
-    draw_obstacles(ax, obstacles)
-    draw_tree(ax, tree)
-    draw_goal(ax, problem.goal)
-    draw_start(ax, problem.start, problem.start_theta)
+    ax_main.set_facecolor(AXES_BG)
+    ax_robot.set_facecolor(AXES_BG)
+
+    # draw layers bottom-to-top on main plot
+    draw_workspace(ax_main, problem)
+    draw_obstacles(ax_main, obstacles)
+    draw_tree(ax_main, tree)
+    draw_goal(ax_main, problem.goal)
+    draw_start(ax_main, problem.start, problem.start_theta)
 
     if isinstance(path, str):
-        draw_error(ax, path)
+        draw_error(ax_main, path)
     else:
-        draw_path(ax, path)
+        draw_path(ax_main, path)
+        # Draw robot at goal position with final orientation from path
+        if path:
+            final_pose = path[-1]
+            draw_robot_at_pose(ax_main, robot, final_pose.x, final_pose.y, final_pose.theta, alpha=0.5)
 
-    # axes styling
+    # main axes styling
     ws = problem.workspace
     margin = (ws.x_max - ws.x_min) * 0.02
-    ax.set_xlim(ws.x_min - margin, ws.x_max + margin)
-    ax.set_ylim(ws.y_min - margin, ws.y_max + margin)
-    ax.set_aspect("equal")
+    ax_main.set_xlim(ws.x_min - margin, ws.x_max + margin)
+    ax_main.set_ylim(ws.y_min - margin, ws.y_max + margin)
+    ax_main.set_aspect("equal")
 
-    for spine in ax.spines.values():
+    for spine in ax_main.spines.values():
         spine.set_edgecolor(SPINE)
-    ax.tick_params(colors=TICK, labelsize=8)
-    ax.xaxis.label.set_color(TICK)
-    ax.yaxis.label.set_color(TICK)
+    ax_main.tick_params(colors=TICK, labelsize=8)
+    ax_main.xaxis.label.set_color(TICK)
+    ax_main.yaxis.label.set_color(TICK)
 
-    # legend
+    # draw robot shape in inset
+    draw_robot_shape(ax_robot, robot)
+
+    # legend on main plot
     legend_handles = [
         mpatches.Patch(facecolor=OBSTACLE, edgecolor=OBSTACLE_ED, label="Obstacle"),
         mpatches.Patch(facecolor=GOAL_FILL, edgecolor=GOAL_EDGE, label="Goal region"),
@@ -97,7 +113,7 @@ def render(
         legend_handles.append(
             plt.Line2D([0], [0], color=PATH_COL, linewidth=2.0, label="Path")
         )
-    ax.legend(
+    ax_main.legend(
         handles=legend_handles,
         loc="upper right",
         fontsize=7,
@@ -281,3 +297,52 @@ def draw_error(ax, message: str) -> None:
         zorder=10,
         wrap=True,
     )
+
+
+def draw_robot_at_pose(ax, robot: RobotShape, x: float, y: float, theta: float, alpha: float = 0.3) -> None:
+    """draw robot shape at a given pose (x, y, theta) on the workspace"""
+    import math
+
+    # Transform all hull points to world frame
+    transformed_hull = []
+    for px, py in robot.hull:
+        wx = x + px * math.cos(theta) - py * math.sin(theta)
+        wy = y + px * math.sin(theta) + py * math.cos(theta)
+        transformed_hull.append((wx, wy))
+
+    # Draw filled polygon for convex hull
+    if len(transformed_hull) >= 3:
+        polygon = mpatches.Polygon(
+            transformed_hull,
+            closed=True,
+            facecolor=ROBOT_HULL_FILL,
+            edgecolor=ROBOT_HULL,
+            linewidth=1.0,
+            alpha=alpha,
+            zorder=4,
+        )
+        ax.add_patch(polygon)
+
+
+def draw_robot_shape(ax, robot: RobotShape) -> None:
+    """draw robot shape inset showing point cloud and convex hull boundary"""
+    # Draw all points as scatter
+    xs = [p[0] for p in robot.points]
+    ys = [p[1] for p in robot.points]
+    ax.scatter(xs, ys, color=ROBOT_POINT, s=12, alpha=0.6, zorder=2, label="Robot points")
+
+    # Draw convex hull as polygon
+    if len(robot.hull) >= 3:
+        hull_xs = [p[0] for p in robot.hull] + [robot.hull[0][0]]  # close the polygon
+        hull_ys = [p[1] for p in robot.hull] + [robot.hull[0][1]]
+        ax.plot(hull_xs, hull_ys, color=ROBOT_HULL, linewidth=2.0, zorder=3, label="Convex hull")
+        ax.fill(hull_xs, hull_ys, color=ROBOT_HULL_FILL, alpha=0.15, zorder=1)
+
+    # Styling
+    ax.set_aspect("equal")
+    ax.set_title("Robot Shape", fontsize=9, color=TICK, pad=8)
+    ax.tick_params(colors=TICK, labelsize=7)
+    for spine in ax.spines.values():
+        spine.set_edgecolor(SPINE)
+    ax.grid(True, alpha=0.2, color=SPINE, linewidth=0.5)
+    ax.legend(fontsize=6, loc="upper right", framealpha=0.9)

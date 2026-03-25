@@ -64,6 +64,12 @@ class PathNode:
     gamma: float  # steering acceleration control
 
 
+@dataclass
+class RobotShape:
+    points: list[tuple[float, float]]  # all robot points
+    hull: list[tuple[float, float]]  # convex hull points
+
+
 ###############################################################################
 # Loaders
 ###############################################################################
@@ -114,6 +120,64 @@ def load_problem(data_dir: str, problem_num: str) -> Problem:
     )
     epsilon = float(d["motion"]["epsilon"])
     return Problem(workspace=workspace, start=start, start_theta=start_theta, goal=goal, epsilon=epsilon)
+
+
+def load_robot(data_dir: str) -> RobotShape:
+    """parse `robot.txt` and return robot shape with all points and convex hull
+
+    format:
+        x_1, y_1
+        x_2, y_2
+        ...
+
+    Note: We compute the convex hull here using Graham scan to match Haskell implementation
+    """
+    path = os.path.join(data_dir, "robot.txt")
+    points = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) != 2:
+                raise ValueError(f"malformed robot line: {line!r}")
+            x, y = float(parts[0]), float(parts[1])
+            points.append((x, y))
+
+    # Compute convex hull using Graham scan
+    hull = _convex_hull(points)
+    return RobotShape(points=points, hull=hull)
+
+
+def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Compute convex hull using Graham scan algorithm"""
+    import math
+
+    if len(points) < 3:
+        return points
+
+    # Find point with lowest y-coordinate (leftmost if tie)
+    p0 = min(points)
+
+    # Sort points by polar angle with respect to p0
+    def angle_from(p):
+        return math.atan2(p[1] - p0[1], p[0] - p0[0])
+
+    sorted_points = sorted([p for p in points if p != p0], key=angle_from)
+
+    # Graham scan
+    def ccw(p1, p2, p3):
+        """Counter-clockwise test"""
+        return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0]) > 0
+
+    hull = [p0]
+    for p in sorted_points:
+        while len(hull) >= 2 and not ccw(hull[-2], hull[-1], p):
+            hull.pop()
+        hull.append(p)
+
+    return hull
 
 
 def load_search_tree(output_dir: str) -> list[TreeNode]:

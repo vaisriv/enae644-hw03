@@ -33,13 +33,14 @@ def main(input_dir: str, output_dir: str, problem_num: str, save: bool) -> None:
     # load input data
     obstacles = parse.load_obstacles(input_dir)
     problem = parse.load_problem(input_dir, problem_num)
+    robot = parse.load_robot(input_dir)
 
     # load RRT outputs
     tree = parse.load_search_tree(out_dir)
     path = parse.load_path(out_dir)
 
     # render and save
-    fig = visualize.render(obstacles, problem, tree, path)
+    fig = visualize.render(obstacles, problem, tree, path, robot)
     if save:
         fig.savefig(out_file, dpi=150, bbox_inches="tight")
         click.echo(f"Saved: {out_file}")
