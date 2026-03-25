@@ -16,6 +16,7 @@ module RRT
   )
 where
 
+import Control.Monad (when)
 import qualified Data.List (minimumBy)
 import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
@@ -35,6 +36,7 @@ import qualified Graphs
     graphNodes,
     pathToRoot,
   )
+import System.IO (hFlush, stdout)
 import System.Random (RandomGen, randomR)
 import Types
 
@@ -141,7 +143,7 @@ extendToward (fx, fy) (tx, ty) epsilon =
 -- RRT algorithm
 -------------------------------------------------------------------------------
 
--- | run RRT
+-- | run RRT with progress reporting
 --   returns the final graph (search tree) and either the path from
 --   start to goal (Right) or an error message (Left) if max iterations reached
 --
@@ -154,24 +156,36 @@ rrt ::
   Problem ->
   Int ->
   g ->
-  (Graphs.Graph, Either String [Graphs.Node])
-rrt problem maxIter gen =
+  IO (Graphs.Graph, Either String [Graphs.Node])
+rrt problem maxIter gen = do
   let (sx, sy, stheta, sv, sw) = problemStart problem
       (initGraph, _) = Graphs.addNode sx sy stheta sv sw Nothing Nothing Nothing Graphs.emptyGraph
-   in go initGraph gen 0
+  putStrLn "RRT search started..."
+  go initGraph gen 0 0
   where
+    reportInterval = 500  -- Report every 500 iterations
     ws = problemWorkspace problem
     goal = problemGoal problem
     obs = problemObstacles problem
     robot = problemRobot problem
     eps = motionEpsilon (problemMotion problem)
 
-    go g gen' iter
-      | iter >= maxIter =
-          ( g,
-            Left $ "No path found after " ++ show maxIter ++ " iterations"
-          )
-      | otherwise =
+    go g gen' iter steerSuccesses
+      | iter >= maxIter = do
+          putStrLn $ "\nSearch exhausted: " ++ show maxIter ++ " iterations"
+          return
+            ( g,
+              Left $ "No path found after " ++ show maxIter ++ " iterations"
+            )
+      | otherwise = do
+          -- Progress reporting every reportInterval iterations
+          when (iter > 0 && iter `mod` reportInterval == 0) $ do
+            let nodes = Map.size (Graphs.graphNodes g)
+                successRate = if iter > 0 then (100.0 * fromIntegral steerSuccesses / fromIntegral iter :: Double) else 0.0
+            putStr $ "\rIter: " ++ show iter ++ "/" ++ show maxIter
+                  ++ " | Nodes: " ++ show nodes
+                  ++ " | Steering success: " ++ show (round successRate :: Int) ++ "%"
+            hFlush stdout
           -- 1. sample a random 5D state (10% goal biasing)
           let (biasRoll, gen1) = randomR (0.0 :: Double, 1.0 :: Double) gen'
               (qrand, gen2) = if biasRoll < 0.1
@@ -187,8 +201,8 @@ rrt problem maxIter gen =
                 (Graphs.nodeW nearest)
               -- 3. steer from nearest toward sample using dynamics
            in case Dynamics.steer nearestState qrand eps robot obs gen2 of
-                Nothing -> go g gen2 (iter + 1) -- steering failed
-                Just ((states, ctrl, duration), gen3) ->
+                Nothing -> go g gen2 (iter + 1) steerSuccesses -- steering failed
+                Just ((states, ctrl, duration), gen3) -> do
                   -- 4. trajectory is already collision-checked in steer
                   -- 5. add new node with final state from trajectory
                   let finalState = last states
@@ -205,14 +219,21 @@ rrt problem maxIter gen =
                         g
                    in -- 6. check goal (only position needs to be in goal region)
                       if inGoal (Dynamics.stateX finalState, Dynamics.stateY finalState) goal
-                        then
+                        then do
+                          putStrLn $ "\n\nGoal reached at iteration " ++ show iter ++ "!"
                           let path = Graphs.pathToRoot newId g'
                               -- Extract states from path for validation
                               pathStates = map nodeToState5D path
-                           in if Dynamics.validateFinalPath pathStates robot obs
-                                then (g', Right path)
-                                else go g' gen3 (iter + 1) -- path validation failed
-                        else go g' gen3 (iter + 1)
+                          putStr "Validating path with full robot geometry... "
+                          hFlush stdout
+                          if Dynamics.validateFinalPath pathStates robot obs
+                            then do
+                              putStrLn "✓ Path valid!"
+                              return (g', Right path)
+                            else do
+                              putStrLn "✗ Validation failed, continuing search..."
+                              go g' gen3 (iter + 1) (steerSuccesses + 1) -- path validation failed
+                        else go g' gen3 (iter + 1) (steerSuccesses + 1)
 
     -- Sample random 5D state in workspace
     sampleRandomState gen0 =

@@ -316,7 +316,7 @@ main = do
   problem <- parseProblem probFile obstacles robot
   -- run RRT
   gen <- initStdGen
-  let (tree, result) = RRT.rrt problem (maxAttempts args) gen
+  (tree, result) <- RRT.rrt problem (maxAttempts args) gen
   -- write outputs
   writeSearchTree treeFile tree
   writePath pathFile result
