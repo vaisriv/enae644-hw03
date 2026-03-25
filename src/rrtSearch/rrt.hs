@@ -19,6 +19,7 @@ where
 import Control.Monad (when)
 import qualified Data.List (minimumBy)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
 import qualified Dynamics
   ( RobotShape (..),
@@ -26,6 +27,7 @@ import qualified Dynamics
     Trajectory,
     ValidationFailure (..),
     distState5D,
+    integrateTrajectory,
     robotBoundingRadius,
     steer,
     validateFinalPath,
@@ -226,11 +228,11 @@ rrt problem maxIter gen = do
                         then do
                           putStrLn $ "\n\nGoal reached at iteration " ++ show iter ++ "!"
                           let path = Graphs.pathToRoot newId g'
-                              -- Extract states from path for validation
-                              pathStates = map nodeToState5D path
+                              -- Reconstruct actual trajectories from stored controls and durations
+                              pathTrajectories = reconstructPathTrajectories path
                           putStr "Validating path with full robot geometry... "
                           hFlush stdout
-                          case Dynamics.validateFinalPathWithDiagnostics pathStates robot obs ws of
+                          case Dynamics.validateFinalPathWithDiagnostics pathTrajectories robot obs ws of
                             Nothing -> do
                               putStrLn "✓ Path valid!"
                               return (g', Right path)
@@ -287,6 +289,22 @@ rrt problem maxIter gen = do
             && x + robotRadius <= workspaceXMax ws
             && y - robotRadius >= workspaceYMin ws
             && y + robotRadius <= workspaceYMax ws
+
+    -- Reconstruct actual dynamically-feasible trajectories from RRT path
+    -- Returns complete list of states following car dynamics
+    reconstructPathTrajectories :: [Graphs.Node] -> [Dynamics.State5D]
+    reconstructPathTrajectories nodes = case nodes of
+      [] -> []
+      [n] -> [nodeToState5D n]  -- Just the root node
+      (parent : child : rest) ->
+        let parentState = nodeToState5D parent
+            childControl = fromMaybe (0, 0) (Graphs.nodeControl child)
+            childDuration = fromMaybe 0.0 (Graphs.nodeDuration child)
+            dt = 0.01  -- same dt as used in steering
+            trajectory = Dynamics.integrateTrajectory dt parentState childControl childDuration
+            -- Remove last point to avoid duplication with next segment
+            trajectorySegment = if null trajectory then [] else init trajectory
+         in trajectorySegment ++ reconstructPathTrajectories (child : rest)
 
     -- Print validation failure for diagnostics
     printFailure :: Dynamics.ValidationFailure -> IO ()
