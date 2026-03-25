@@ -36,6 +36,7 @@ class Goal:
 class Problem:
     workspace: Workspace
     start: tuple[float, float]
+    start_theta: float  # orientation at start
     goal: Goal
     epsilon: float
 
@@ -45,7 +46,22 @@ class TreeNode:
     node_id: int
     x: float
     y: float
+    theta: float
+    v: float
+    w: float
     parent_id: int  # -1 for root
+
+
+@dataclass
+class PathNode:
+    t: float  # time
+    x: float
+    y: float
+    theta: float
+    v: float
+    w: float
+    a: float  # acceleration control
+    gamma: float  # steering acceleration control
 
 
 ###############################################################################
@@ -89,17 +105,19 @@ def load_problem(data_dir: str, problem_num: str) -> Problem:
         y_max=d["workspace"]["y"][1],
     )
     start = (float(d["start"]["x"]), float(d["start"]["y"]))
+    import math
+    start_theta = float(d["start"]["theta_pi_rad"]) * math.pi  # convert from pi-radians to radians
     goal = Goal(
         x=float(d["goal"]["x"]),
         y=float(d["goal"]["y"]),
         radius=float(d["goal"]["radius"]),
     )
     epsilon = float(d["motion"]["epsilon"])
-    return Problem(workspace=workspace, start=start, goal=goal, epsilon=epsilon)
+    return Problem(workspace=workspace, start=start, start_theta=start_theta, goal=goal, epsilon=epsilon)
 
 
 def load_search_tree(output_dir: str) -> list[TreeNode]:
-    """read `search_tree.csv` (node_id,x,y,parent_id) and return nodes in order"""
+    """read `search_tree.csv` (node_id,x,y,theta,v,w,parent_id) and return nodes in order"""
     path = os.path.join(output_dir, "search_tree.csv")
     nodes = []
     with open(path, newline="") as f:
@@ -110,14 +128,17 @@ def load_search_tree(output_dir: str) -> list[TreeNode]:
                     node_id=int(row["node_id"]),
                     x=float(row["x"]),
                     y=float(row["y"]),
+                    theta=float(row["theta"]),
+                    v=float(row["v"]),
+                    w=float(row["w"]),
                     parent_id=int(row["parent_id"]),
                 )
             )
     return nodes
 
 
-def load_path(output_dir: str) -> list[tuple[float, float]] | str:
-    """read `path.csv` and return either a list of (x, y) waypoints,
+def load_path(output_dir: str) -> list[PathNode] | str:
+    """read `path.csv` and return either a list of PathNode objects,
     or an error string if the file contains an ERROR: message"""
     path = os.path.join(output_dir, "path.csv")
     with open(path, newline="") as f:
@@ -128,4 +149,16 @@ def load_path(output_dir: str) -> list[tuple[float, float]] | str:
         # success case — re-read with csv.DictReader (first line was the header)
         f.seek(0)
         reader = csv.DictReader(f)
-        return [(float(row["x"]), float(row["y"])) for row in reader]
+        return [
+            PathNode(
+                t=float(row["t"]),
+                x=float(row["x"]),
+                y=float(row["y"]),
+                theta=float(row["theta"]),
+                v=float(row["v"]),
+                w=float(row["w"]),
+                a=float(row["a"]),
+                gamma=float(row["gamma"]),
+            )
+            for row in reader
+        ]

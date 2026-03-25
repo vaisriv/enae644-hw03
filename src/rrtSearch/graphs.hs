@@ -24,15 +24,25 @@ import qualified Data.Map.Strict as Map
 -------------------------------------------------------------------------------
 
 -- | a node in the RRT tree
---   `nodeId`     : unique identifier (root = 0)
---   `nodeX`      : x coordinate in workspace R^2
---   `nodeY`      : y coordinate in workspace R^2
---   `nodeParent` : Just parentId, or Nothing for the root
+--   `nodeId`       : unique identifier (root = 0)
+--   `nodeX`        : x coordinate in workspace R^2
+--   `nodeY`        : y coordinate in workspace R^2
+--   `nodeTheta`    : orientation in [0, 2π]
+--   `nodeV`        : linear velocity in [-5, 5]
+--   `nodeW`        : angular velocity in [-π/2, π/2]
+--   `nodeParent`   : Just parentId, or Nothing for the root
+--   `nodeControl`  : control (a, γ) that led to this node from parent
+--   `nodeDuration` : duration of trajectory segment from parent
 data Node = Node
   { nodeId :: Int,
     nodeX :: Double,
     nodeY :: Double,
-    nodeParent :: Maybe Int
+    nodeTheta :: Double,
+    nodeV :: Double,
+    nodeW :: Double,
+    nodeParent :: Maybe Int,
+    nodeControl :: Maybe (Double, Double),
+    nodeDuration :: Maybe Double
   }
   deriving (Show, Eq)
 
@@ -70,12 +80,34 @@ emptyGraph =
     }
 
 -- | add a node to the graph, returning the updated graph and the new node's id
---   the caller supplies coordinates and an optional parent id
+--   the caller supplies 5D state (x, y, theta, v, w), optional parent id,
+--   optional control, and optional duration
 --   the node id is assigned automatically from `graphNextId`
-addNode :: Double -> Double -> Maybe Int -> Graph -> (Graph, Int)
-addNode x y parent g =
+addNode ::
+  Double ->
+  Double ->
+  Double ->
+  Double ->
+  Double ->
+  Maybe Int ->
+  Maybe (Double, Double) ->
+  Maybe Double ->
+  Graph ->
+  (Graph, Int)
+addNode x y theta v w parent control duration g =
   let nid = graphNextId g
-      node = Node {nodeId = nid, nodeX = x, nodeY = y, nodeParent = parent}
+      node =
+        Node
+          { nodeId = nid,
+            nodeX = x,
+            nodeY = y,
+            nodeTheta = theta,
+            nodeV = v,
+            nodeW = w,
+            nodeParent = parent,
+            nodeControl = control,
+            nodeDuration = duration
+          }
       nodes' = Map.insert nid node (graphNodes g)
       -- register as child of parent
       edges' = case parent of

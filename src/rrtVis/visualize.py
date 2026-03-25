@@ -1,11 +1,13 @@
 """rrtVis.visualize — render RRT results using matplotlib"""
 
+import math
 import matplotlib.figure
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.collections as mcollections
+import numpy as np
 
-from rrtVis.parse import Goal, Obstacle, Problem, TreeNode
+from rrtVis.parse import Goal, Obstacle, Problem, TreeNode, PathNode
 
 ###############################################################################
 # Palette
@@ -41,7 +43,7 @@ def render(
     obstacles: list[Obstacle],
     problem: Problem,
     tree: list[TreeNode],
-    path: list[tuple[float, float]] | str,
+    path: list[PathNode] | str,
 ) -> matplotlib.figure.Figure:
     """render the full RRT result into a matplotlib Figure and return it
 
@@ -56,7 +58,7 @@ def render(
     draw_obstacles(ax, obstacles)
     draw_tree(ax, tree)
     draw_goal(ax, problem.goal)
-    draw_start(ax, problem.start)
+    draw_start(ax, problem.start, problem.start_theta)
 
     if isinstance(path, str):
         draw_error(ax, path)
@@ -192,8 +194,9 @@ def draw_goal(ax, goal: Goal) -> None:
     ax.add_patch(ring)
 
 
-def draw_start(ax, start: tuple[float, float]) -> None:
-    """draw the start position as a star marker"""
+def draw_start(ax, start: tuple[float, float], theta: float) -> None:
+    """draw the start position as a star marker with orientation arrow"""
+    # Star marker at start position
     ax.plot(
         start[0],
         start[1],
@@ -204,20 +207,57 @@ def draw_start(ax, start: tuple[float, float]) -> None:
         markeredgewidth=0.6,
         zorder=5,
     )
+    # Orientation arrow
+    arrow_length = 3.0
+    dx = arrow_length * math.cos(theta)
+    dy = arrow_length * math.sin(theta)
+    ax.arrow(
+        start[0],
+        start[1],
+        dx,
+        dy,
+        head_width=1.5,
+        head_length=1.0,
+        fc=START_COL,
+        ec=START_EDGE,
+        linewidth=1.5,
+        alpha=0.8,
+        zorder=5,
+    )
 
 
-def draw_path(ax, path: list[tuple[float, float]]) -> None:
-    """draw the solution path as a bold line with a soft halo and node dots"""
+def draw_path(ax, path: list[PathNode]) -> None:
+    """draw the solution path as a bold line with a soft halo, node dots, and orientation arrows"""
     if not path:
         return
-    xs = [p[0] for p in path]
-    ys = [p[1] for p in path]
+    xs = [p.x for p in path]
+    ys = [p.y for p in path]
     # halo layer — wide, low-alpha pass for a subtle shadow effect on light bg
     ax.plot(xs, ys, color=PATH_HALO, linewidth=5.0, alpha=0.08, zorder=6)
     # main path line
     ax.plot(xs, ys, color=PATH_COL, linewidth=1.8, alpha=0.95, zorder=7)
     # node dots
     ax.scatter(xs, ys, color=PATH_COL, s=8, zorder=8)
+
+    # Draw orientation arrows at path waypoints (every 3rd point to avoid clutter)
+    arrow_length = 2.0
+    for i, p in enumerate(path):
+        if i % 3 == 0:  # subsample to avoid too many arrows
+            dx = arrow_length * math.cos(p.theta)
+            dy = arrow_length * math.sin(p.theta)
+            ax.arrow(
+                p.x,
+                p.y,
+                dx,
+                dy,
+                head_width=0.8,
+                head_length=0.6,
+                fc=PATH_COL,
+                ec=PATH_COL,
+                linewidth=1.0,
+                alpha=0.5,
+                zorder=7,
+            )
 
 
 def draw_error(ax, message: str) -> None:

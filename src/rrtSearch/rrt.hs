@@ -1,9 +1,6 @@
 module RRT
-  ( -- Types
-    Obstacle (..),
-    Workspace (..),
-    Goal (..),
-    Motion (..),
+  ( -- Types (re-exported from Types module)
+    module Types,
     Problem (..),
     -- Geometry
     distPoint,
@@ -22,6 +19,14 @@ where
 import qualified Data.List (minimumBy)
 import qualified Data.Map.Strict as Map
 import Data.Ord (comparing)
+import qualified Dynamics
+  ( RobotShape (..),
+    State5D (..),
+    Trajectory,
+    distState5D,
+    steer,
+    validateFinalPath,
+  )
 import qualified Graphs
   ( Graph (..),
     Node (..),
@@ -31,50 +36,20 @@ import qualified Graphs
     pathToRoot,
   )
 import System.Random (RandomGen, randomR)
+import Types
 
 -------------------------------------------------------------------------------
 -- Types
 -------------------------------------------------------------------------------
 
--- | a (circular) disc obstacle in R^2
-data Obstacle = Obstacle
-  { obstacleX :: Double,
-    obstacleY :: Double,
-    obstacleRadius :: Double
-  }
-  deriving (Show)
-
--- | axis-aligned rectangular workspace bounds
-data Workspace = Workspace
-  { workspaceXMin :: Double,
-    workspaceXMax :: Double,
-    workspaceYMin :: Double,
-    workspaceYMax :: Double
-  }
-  deriving (Show)
-
--- | circular goal region
-data Goal = Goal
-  { goalX :: Double,
-    goalY :: Double,
-    goalRadius :: Double
-  }
-  deriving (Show)
-
--- | motion parameters
---   epsilon is max extension distance per step
-data Motion = Motion
-  { motionEpsilon :: Double
-  }
-  deriving (Show)
-
 -- | a fully-specified RRT problem instance
 data Problem = Problem
   { problemWorkspace :: Workspace,
-    problemStart :: (Double, Double),
+    problemStart :: (Double, Double, Double, Double, Double), -- (x, y, theta, v, w)
     problemGoal :: Goal,
     problemMotion :: Motion,
-    problemObstacles :: [Obstacle]
+    problemObstacles :: [Obstacle],
+    problemRobot :: Dynamics.RobotShape
   }
   deriving (Show)
 
@@ -135,7 +110,16 @@ inWorkspace (x, y) ws =
 -- Tree operations
 -------------------------------------------------------------------------------
 
--- | find the nearest node in the graph to a query point
+-- | find the nearest node in the graph to a query 5D state
+nearestNode5D :: Dynamics.State5D -> Graphs.Graph -> Graphs.Node
+nearestNode5D qstate g =
+  Data.List.minimumBy
+    (comparing (\n ->
+      let nstate = Dynamics.State5D (Graphs.nodeX n) (Graphs.nodeY n) (Graphs.nodeTheta n) (Graphs.nodeV n) (Graphs.nodeW n)
+       in Dynamics.distState5D qstate nstate))
+    (Map.elems (Graphs.graphNodes g))
+
+-- | find the nearest node in the graph to a query point (legacy 2D version)
 nearestNode :: (Double, Double) -> Graphs.Graph -> Graphs.Node
 nearestNode (qx, qy) g =
   Data.List.minimumBy
@@ -172,13 +156,14 @@ rrt ::
   g ->
   (Graphs.Graph, Either String [Graphs.Node])
 rrt problem maxIter gen =
-  let (sx, sy) = problemStart problem
-      (initGraph, _) = Graphs.addNode sx sy Nothing Graphs.emptyGraph
+  let (sx, sy, stheta, sv, sw) = problemStart problem
+      (initGraph, _) = Graphs.addNode sx sy stheta sv sw Nothing Nothing Nothing Graphs.emptyGraph
    in go initGraph gen 0
   where
     ws = problemWorkspace problem
     goal = problemGoal problem
     obs = problemObstacles problem
+    robot = problemRobot problem
     eps = motionEpsilon (problemMotion problem)
 
     go g gen' iter
@@ -187,23 +172,72 @@ rrt problem maxIter gen =
             Left $ "No path found after " ++ show maxIter ++ " iterations"
           )
       | otherwise =
-          -- 1. sample a random point in the workspace
-          let (rx, gen1) = randomR (workspaceXMin ws, workspaceXMax ws) gen'
-              (ry, gen2) = randomR (workspaceYMin ws, workspaceYMax ws) gen1
-              qrand = (rx, ry)
-              -- 2. find nearest node in tree
-              nearest = nearestNode qrand g
-              npos = (Graphs.nodeX nearest, Graphs.nodeY nearest)
-              -- 3. extend toward sample
-              qnew = extendToward npos qrand eps
-              -- 4. collision check
-              clear = segmentClear npos qnew obs
-           in if not clear
-                then go g gen2 (iter + 1)
-                else
-                  -- 5. add new node
-                  let (g', newId) = Graphs.addNode (fst qnew) (snd qnew) (Just (Graphs.nodeId nearest)) g
-                   in -- 6. check goal
-                      if inGoal qnew goal
-                        then (g', Right (Graphs.pathToRoot newId g'))
-                        else go g' gen2 (iter + 1)
+          -- 1. sample a random 5D state (10% goal biasing)
+          let (biasRoll, gen1) = randomR (0.0 :: Double, 1.0 :: Double) gen'
+              (qrand, gen2) = if biasRoll < 0.1
+                              then sampleGoalState gen1
+                              else sampleRandomState gen1
+              -- 2. find nearest node in tree using 5D distance
+              nearest = nearestNode5D qrand g
+              nearestState = Dynamics.State5D
+                (Graphs.nodeX nearest)
+                (Graphs.nodeY nearest)
+                (Graphs.nodeTheta nearest)
+                (Graphs.nodeV nearest)
+                (Graphs.nodeW nearest)
+              -- 3. steer from nearest toward sample using dynamics
+           in case Dynamics.steer nearestState qrand eps robot obs gen2 of
+                Nothing -> go g gen2 (iter + 1) -- steering failed
+                Just ((states, ctrl, duration), gen3) ->
+                  -- 4. trajectory is already collision-checked in steer
+                  -- 5. add new node with final state from trajectory
+                  let finalState = last states
+                      (a, gamma) = ctrl
+                      (g', newId) = Graphs.addNode
+                        (Dynamics.stateX finalState)
+                        (Dynamics.stateY finalState)
+                        (Dynamics.stateTheta finalState)
+                        (Dynamics.stateV finalState)
+                        (Dynamics.stateW finalState)
+                        (Just (Graphs.nodeId nearest))
+                        (Just ctrl)
+                        (Just duration)
+                        g
+                   in -- 6. check goal (only position needs to be in goal region)
+                      if inGoal (Dynamics.stateX finalState, Dynamics.stateY finalState) goal
+                        then
+                          let path = Graphs.pathToRoot newId g'
+                              -- Extract states from path for validation
+                              pathStates = map nodeToState5D path
+                           in if Dynamics.validateFinalPath pathStates robot obs
+                                then (g', Right path)
+                                else go g' gen3 (iter + 1) -- path validation failed
+                        else go g' gen3 (iter + 1)
+
+    -- Sample random 5D state in workspace
+    sampleRandomState gen0 =
+      let (x, gen1) = randomR (workspaceXMin ws, workspaceXMax ws) gen0
+          (y, gen2) = randomR (workspaceYMin ws, workspaceYMax ws) gen1
+          (theta, gen3) = randomR (0.0, 2 * pi) gen2
+          (v, gen4) = randomR (-5.0, 5.0) gen3
+          (w, gen5) = randomR (-pi/2, pi/2) gen4
+       in (Dynamics.State5D x y theta v w, gen5)
+
+    -- Sample state in goal region (with random velocities)
+    sampleGoalState gen0 =
+      let (angle, gen1) = randomR (0.0, 2 * pi) gen0
+          (radius, gen2) = randomR (0.0, goalRadius goal) gen1
+          x = goalX goal + radius * cos angle
+          y = goalY goal + radius * sin angle
+          (theta, gen3) = randomR (0.0, 2 * pi) gen2
+          (v, gen4) = randomR (-5.0, 5.0) gen3
+          (w, gen5) = randomR (-pi/2, pi/2) gen4
+       in (Dynamics.State5D x y theta v w, gen5)
+
+    -- Convert Node to State5D
+    nodeToState5D n = Dynamics.State5D
+      (Graphs.nodeX n)
+      (Graphs.nodeY n)
+      (Graphs.nodeTheta n)
+      (Graphs.nodeV n)
+      (Graphs.nodeW n)

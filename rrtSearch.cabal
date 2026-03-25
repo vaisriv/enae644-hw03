@@ -69,7 +69,9 @@ executable rrtSearch
     -- Modules included in this executable, other than Main.
     other-modules:
         Graphs,
-        RRT
+        RRT,
+        Dynamics,
+        Types
 
     -- LANGUAGE extensions used by modules in this package.
     other-extensions: OverloadedStrings

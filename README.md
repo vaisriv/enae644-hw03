@@ -7,8 +7,7 @@
 
 ### Implementation Decisions
 
-<!-- FIXME: wip -->
-<!-- TODO: a one paragraph write-up describing how you dealt with the dynamic constraints (e.g., did you solve the 2P-BVP, if so then how? otherwise, how did you implement the steering function?) -->
+The RRT algorithm was extended to handle car-like dynamics using a random shooting approach to solve the Two-Point Boundary Value Problem (2P-BVP). For each steering query between two 5D states (x, y, θ, v, w), the algorithm generates 20 random control trajectories by sampling acceleration a ∈ [-2, 2], steering acceleration γ ∈ [-π/2, π/2], and duration T ∈ [0.1, 5.0] seconds. Each trajectory is forward-integrated using RK4 numerical integration (dt=0.01) according to the car dynamics: ẋ = v·cos(θ), ẏ = v·sin(θ), θ̇ = w, v̇ = a, ẇ = γ. The trajectory is accepted if it reaches within epsilon distance of the target state and is collision-free. Collision checking uses the convex hull (8 points from 37) of the robot shape during search for efficiency, then validates the final path with all 37 robot points for safety. The RRT employs 10% goal biasing to improve convergence, sampling states from the goal region 10% of the time and random 5D states otherwise. Distance in configuration space uses weighted Euclidean metric with weights (1.0, 0.3, 0.2, 0.1) for position, orientation, linear velocity, and angular velocity respectively, prioritizing spatial proximity while accounting for kinematic differences.
 
 ## Contributors
 

@@ -9,6 +9,10 @@ import Data.Aeson
     (.:),
   )
 import qualified Data.Map.Strict as Map
+import qualified Dynamics
+  ( RobotShape (..),
+    convexHull,
+  )
 import qualified Graphs
   ( Graph (..),
     Node (..),
@@ -66,15 +70,16 @@ instance FromJSON JsonWorkspace where
     JsonWorkspace <$> o .: "x" <*> o .: "y"
 
 -- | intermediate type for deserializing the start/point objects
---     { "x": ..., "y": ... }
+--     { "x": ..., "y": ..., "theta_pi_rad": ... }
 data JsonPoint = JsonPoint
   { jpX :: Double,
-    jpY :: Double
+    jpY :: Double,
+    jpTheta :: Double
   }
 
 instance FromJSON JsonPoint where
   parseJSON = withObject "Point" $ \o ->
-    JsonPoint <$> o .: "x" <*> o .: "y"
+    JsonPoint <$> o .: "x" <*> o .: "y" <*> o .: "theta_pi_rad"
 
 -- | intermediate type for deserializing the goal object
 --     { "x": ..., "y": ..., "radius": ... }
@@ -141,23 +146,49 @@ parseObstacles path = do
       | c == delim = "" : splitOn delim cs
       | otherwise = let (w : ws) = splitOn delim cs in (c : w) : ws
 
+-- | parse `robot.txt` into a RobotShape with convex hull
+--
+--   format:
+--     x_1, y_1
+--     x_2, y_2
+--     ...
+parseRobot :: System.FilePath.FilePath -> IO Dynamics.RobotShape
+parseRobot path = do
+  contents <- readFile path
+  let ls = lines contents
+  points <- mapM parseLine (filter (not . null) ls)
+  let hull = Dynamics.convexHull points
+  return $ Dynamics.RobotShape {Dynamics.shapePoints = points, Dynamics.shapeHull = hull}
+  where
+    parseLine l = case map (read . trim) (splitOn ',' l) of
+      [x, y] -> return (x, y)
+      _ -> fail $ "malformed robot line: " ++ l
+    trim = reverse . dropWhile (== ' ') . reverse . dropWhile (== ' ')
+    splitOn _ [] = [""]
+    splitOn delim (c : cs)
+      | c == delim = "" : splitOn delim cs
+      | otherwise = let (w : ws) = splitOn delim cs in (c : w) : ws
+
 -- | parse `pXX.json` into a Problem
---   obstacles are passed in separately (parsed from `obstacles.txt`)
-parseProblem :: System.FilePath.FilePath -> [RRT.Obstacle] -> IO RRT.Problem
-parseProblem path obs = do
+--   obstacles and robot shape are passed in separately
+parseProblem :: System.FilePath.FilePath -> [RRT.Obstacle] -> Dynamics.RobotShape -> IO RRT.Problem
+parseProblem path obs robot = do
   result <- eitherDecodeFileStrict path
   case result of
     Left err -> fail $ "failed to parse problem file: " ++ err
     Right jp -> return $ toProblem jp
   where
     toProblem jp =
-      RRT.Problem
-        { RRT.problemWorkspace = toWorkspace (jpWorkspace jp),
-          RRT.problemStart = (jpX (jpStart jp), jpY (jpStart jp)),
-          RRT.problemGoal = toGoal (jpGoal jp),
-          RRT.problemMotion = toMotion (jpMotion jp),
-          RRT.problemObstacles = obs
-        }
+      let startPt = jpStart jp
+          thetaRad = jpTheta startPt * pi -- convert from pi-radians to radians
+       in RRT.Problem
+            { RRT.problemWorkspace = toWorkspace (jpWorkspace jp),
+              RRT.problemStart = (jpX startPt, jpY startPt, thetaRad, 0.0, 0.0), -- (x, y, theta, v=0, w=0)
+              RRT.problemGoal = toGoal (jpGoal jp),
+              RRT.problemMotion = toMotion (jpMotion jp),
+              RRT.problemObstacles = obs,
+              RRT.problemRobot = robot
+            }
     toWorkspace jw = case (jwX jw, jwY jw) of
       ([xmin, xmax], [ymin, ymax]) ->
         RRT.Workspace xmin xmax ymin ymax
@@ -180,12 +211,12 @@ parseProblem path obs = do
 -- | write `search_tree.csv` from the final RRT graph
 --
 --   format (with header):
---     node_id,x,y,parent_id
+--     node_id,x,y,theta,v,w,parent_id
 --     ...
 --   root node has parent_id = -1
 writeSearchTree :: System.FilePath.FilePath -> Graphs.Graph -> IO ()
 writeSearchTree path g = do
-  let header = "node_id,x,y,parent_id"
+  let header = "node_id,x,y,theta,v,w,parent_id"
       rows = map nodeRow (Map.elems (Graphs.graphNodes g))
   writeFile path (unlines (header : rows))
   where
@@ -196,13 +227,21 @@ writeSearchTree path g = do
         ++ ","
         ++ show (Graphs.nodeY n)
         ++ ","
+        ++ show (Graphs.nodeTheta n)
+        ++ ","
+        ++ show (Graphs.nodeV n)
+        ++ ","
+        ++ show (Graphs.nodeW n)
+        ++ ","
         ++ maybe "-1" show (Graphs.nodeParent n)
 
 -- | write `path.csv` from the RRT result
 --
 --   success format (with header):
---     x,y
+--     t,x,y,theta,v,w,a,gamma
 --     ...
+--   Each line represents a trajectory segment from time t_i to t_{i+1}
+--   with the state at t_i and the controls (a, gamma) applied during that segment
 --
 --   failure format:
 --     ERROR: <message>
@@ -210,11 +249,38 @@ writePath :: System.FilePath.FilePath -> Either String [Graphs.Node] -> IO ()
 writePath path (Left errMsg) =
   writeFile path ("ERROR: " ++ errMsg ++ "\n")
 writePath path (Right nodes) = do
-  let header = "x,y"
-      rows = map nodeRow nodes
+  let header = "t,x,y,theta,v,w,a,gamma"
+      rows = trajectoryRows nodes 0.0
   writeFile path (unlines (header : rows))
   where
-    nodeRow n = show (Graphs.nodeX n) ++ "," ++ show (Graphs.nodeY n)
+    -- Generate trajectory rows with cumulative time
+    trajectoryRows [] _ = []
+    trajectoryRows [n] t =
+      -- Final node: output state with zero controls
+      [formatRow t n 0.0 0.0]
+    trajectoryRows (n : rest@(next : _)) t =
+      let -- Get control and duration from the next node (it stores how it got there from n)
+          (a, gamma) = maybe (0.0, 0.0) id (Graphs.nodeControl next)
+          duration = maybe 0.0 id (Graphs.nodeDuration next)
+          row = formatRow t n a gamma
+       in row : trajectoryRows rest (t + duration)
+
+    formatRow t n a gamma =
+      show t
+        ++ ","
+        ++ show (Graphs.nodeX n)
+        ++ ","
+        ++ show (Graphs.nodeY n)
+        ++ ","
+        ++ show (Graphs.nodeTheta n)
+        ++ ","
+        ++ show (Graphs.nodeV n)
+        ++ ","
+        ++ show (Graphs.nodeW n)
+        ++ ","
+        ++ show a
+        ++ ","
+        ++ show gamma
 
 -------------------------------------------------------------------------------
 -- Main
@@ -225,23 +291,29 @@ main = do
   args <- System.Environment.getArgs >>= parse
   let probFile = inputPath args System.FilePath.</> ("p" ++ problemNum args ++ ".json")
       obsFile = inputPath args System.FilePath.</> "obstacles.txt"
+      robotFile = inputPath args System.FilePath.</> "robot.txt"
       outDir = outputPath args System.FilePath.</> problemNum args
       treeFile = outDir System.FilePath.</> "search_tree.csv"
       pathFile = outDir System.FilePath.</> "path.csv"
   -- verify inputs exist
   probExists <- System.Directory.doesFileExist probFile
   obsExists <- System.Directory.doesFileExist obsFile
+  robotExists <- System.Directory.doesFileExist robotFile
   if not probExists
     then putStrLn ("Error: problem file not found: " ++ probFile) >> die
     else return ()
   if not obsExists
     then putStrLn ("Error: obstacles file not found: " ++ obsFile) >> die
     else return ()
+  if not robotExists
+    then putStrLn ("Error: robot file not found: " ++ robotFile) >> die
+    else return ()
   -- ensure output directory exists
   System.Directory.createDirectoryIfMissing True outDir
   -- parse inputs
   obstacles <- parseObstacles obsFile
-  problem <- parseProblem probFile obstacles
+  robot <- parseRobot robotFile
+  problem <- parseProblem probFile obstacles robot
   -- run RRT
   gen <- initStdGen
   let (tree, result) = RRT.rrt problem (maxAttempts args) gen
