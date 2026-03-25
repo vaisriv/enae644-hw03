@@ -14,6 +14,7 @@ module Dynamics
     transformPoint,
     angleDiff,
     distState5D,
+    robotBoundingRadius,
     -- Collision
     pointClearOfCircle,
     stateCollisionFree,
@@ -26,7 +27,7 @@ where
 
 import Data.List (minimum, sortBy)
 import qualified System.Random
-import qualified Types (Obstacle (..))
+import qualified Types (Obstacle (..), Workspace (..))
 
 -------------------------------------------------------------------------------
 -- Types
@@ -178,6 +179,12 @@ distState5D s1 s2 =
         + 0.1 * (stateW s2 - stateW s1) ^ (2 :: Int)
     )
 
+-- | compute the bounding radius of a robot shape
+--   returns the maximum distance from origin to any point in the shape
+robotBoundingRadius :: RobotShape -> Double
+robotBoundingRadius robot =
+  maximum $ map (\(x, y) -> sqrt (x * x + y * y)) (shapePoints robot)
+
 -- | transform robot point from body frame to world frame
 transformPoint :: Double -> Double -> Double -> (Double, Double) -> (Double, Double)
 transformPoint x y theta (px, py) =
@@ -218,6 +225,14 @@ convexHull points
 -- Collision Checking
 -------------------------------------------------------------------------------
 
+-- | check if point is within workspace bounds
+pointInWorkspace :: (Double, Double) -> Types.Workspace -> Bool
+pointInWorkspace (x, y) ws =
+  x >= Types.workspaceXMin ws
+    && x <= Types.workspaceXMax ws
+    && y >= Types.workspaceYMin ws
+    && y <= Types.workspaceYMax ws
+
 -- | check if point is clear of circular obstacle
 pointClearOfCircle :: (Double, Double) -> Types.Obstacle -> Bool
 pointClearOfCircle (x, y) obs =
@@ -227,28 +242,28 @@ pointClearOfCircle (x, y) obs =
    in distSq > Types.obstacleRadius obs ^ (2 :: Int)
 
 -- | check if state is collision-free using convex hull (fast)
-stateCollisionFree :: State5D -> RobotShape -> [Types.Obstacle] -> Bool
-stateCollisionFree state robot obstacles =
+stateCollisionFree :: State5D -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
+stateCollisionFree state robot obstacles workspace =
   let transformedHull = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapeHull robot)
-   in all (\pt -> all (pointClearOfCircle pt) obstacles) transformedHull
+   in all (\pt -> pointInWorkspace pt workspace && all (pointClearOfCircle pt) obstacles) transformedHull
 
 -- | check if state is collision-free using all robot points (thorough)
-validateState :: State5D -> RobotShape -> [Types.Obstacle] -> Bool
-validateState state robot obstacles =
+validateState :: State5D -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
+validateState state robot obstacles workspace =
   let transformedAll = map (transformPoint (stateX state) (stateY state) (stateTheta state)) (shapePoints robot)
-   in all (\pt -> all (pointClearOfCircle pt) obstacles) transformedAll
+   in all (\pt -> pointInWorkspace pt workspace && all (pointClearOfCircle pt) obstacles) transformedAll
 
 -- | check if trajectory is collision-free using convex hull
-trajectoryCollisionFree :: [State5D] -> RobotShape -> [Types.Obstacle] -> Bool
-trajectoryCollisionFree states robot obstacles =
+trajectoryCollisionFree :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
+trajectoryCollisionFree states robot obstacles workspace =
   let subsampled = subsampleTrajectory 0.5 states
-   in all (\s -> stateCollisionFree s robot obstacles) subsampled
+   in all (\s -> stateCollisionFree s robot obstacles workspace) subsampled
 
 -- | validate final path using all robot points
-validateFinalPath :: [State5D] -> RobotShape -> [Types.Obstacle] -> Bool
-validateFinalPath states robot obstacles =
+validateFinalPath :: [State5D] -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> Bool
+validateFinalPath states robot obstacles workspace =
   let subsampled = subsampleTrajectory 0.5 states
-   in all (\s -> validateState s robot obstacles) subsampled
+   in all (\s -> validateState s robot obstacles workspace) subsampled
 
 -------------------------------------------------------------------------------
 -- Steering Function (2P-BVP Solver)
@@ -257,8 +272,8 @@ validateFinalPath states robot obstacles =
 -- | steer from start state to goal state
 --   returns trajectory if successful, Nothing otherwise
 --   uses random shooting
-steer :: System.Random.RandomGen g => State5D -> State5D -> Double -> RobotShape -> [Types.Obstacle] -> g -> Maybe (Trajectory, g)
-steer startState goalState epsilon robot obstacles gen =
+steer :: System.Random.RandomGen g => State5D -> State5D -> Double -> RobotShape -> [Types.Obstacle] -> Types.Workspace -> g -> Maybe (Trajectory, g)
+steer startState goalState epsilon robot obstacles workspace gen =
   let (bestTraj, gen') = tryRandomShooting numAttempts gen Nothing
    in case bestTraj of
         Nothing -> Nothing
@@ -284,7 +299,7 @@ steer startState goalState epsilon robot obstacles gen =
           states = integrateTrajectory dt startState control duration
 
           -- Check if trajectory is collision-free
-          collisionFree = trajectoryCollisionFree states robot obstacles
+          collisionFree = trajectoryCollisionFree states robot obstacles workspace
 
           -- Evaluate distance to goal
           finalState = last states

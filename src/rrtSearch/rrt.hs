@@ -25,6 +25,7 @@ import qualified Dynamics
     State5D (..),
     Trajectory,
     distState5D,
+    robotBoundingRadius,
     steer,
     validateFinalPath,
   )
@@ -200,7 +201,7 @@ rrt problem maxIter gen = do
                 (Graphs.nodeV nearest)
                 (Graphs.nodeW nearest)
               -- 3. steer from nearest toward sample using dynamics
-           in case Dynamics.steer nearestState qrand eps robot obs gen2 of
+           in case Dynamics.steer nearestState qrand eps robot obs ws gen2 of
                 Nothing -> go g gen2 (iter + 1) steerSuccesses -- steering failed
                 Just ((states, ctrl, duration), gen3) -> do
                   -- 4. trajectory is already collision-checked in steer
@@ -217,8 +218,9 @@ rrt problem maxIter gen = do
                         (Just ctrl)
                         (Just duration)
                         g
-                   in -- 6. check goal (only position needs to be in goal region)
+                   in -- 6. check goal (position must be in goal region AND robot must fit in workspace)
                       if inGoal (Dynamics.stateX finalState, Dynamics.stateY finalState) goal
+                         && robotFitsInWorkspace (Dynamics.stateX finalState) (Dynamics.stateY finalState)
                         then do
                           putStrLn $ "\n\nGoal reached at iteration " ++ show iter ++ "!"
                           let path = Graphs.pathToRoot newId g'
@@ -226,7 +228,7 @@ rrt problem maxIter gen = do
                               pathStates = map nodeToState5D path
                           putStr "Validating path with full robot geometry... "
                           hFlush stdout
-                          if Dynamics.validateFinalPath pathStates robot obs
+                          if Dynamics.validateFinalPath pathStates robot obs ws
                             then do
                               putStrLn "✓ Path valid!"
                               return (g', Right path)
@@ -245,15 +247,39 @@ rrt problem maxIter gen = do
        in (Dynamics.State5D x y theta v w, gen5)
 
     -- Sample state in goal region (with random velocities)
+    -- Uses rejection sampling to ensure robot would fit in workspace
     sampleGoalState gen0 =
-      let (angle, gen1) = randomR (0.0, 2 * pi) gen0
-          (radius, gen2) = randomR (0.0, goalRadius goal) gen1
-          x = goalX goal + radius * cos angle
-          y = goalY goal + radius * sin angle
-          (theta, gen3) = randomR (0.0, 2 * pi) gen2
-          (v, gen4) = randomR (-5.0, 5.0) gen3
-          (w, gen5) = randomR (-pi/2, pi/2) gen4
-       in (Dynamics.State5D x y theta v w, gen5)
+      let robotRadius = Dynamics.robotBoundingRadius robot
+          -- Feasible workspace bounds (shrunk by robot bounding radius)
+          xMin = workspaceXMin ws + robotRadius
+          xMax = workspaceXMax ws - robotRadius
+          yMin = workspaceYMin ws + robotRadius
+          yMax = workspaceYMax ws - robotRadius
+          -- Try to sample a feasible goal state (max 20 attempts)
+          trySampleGoal gen n
+            | n >= 20 = sampleRandomState gen  -- Fallback to random sampling
+            | otherwise =
+                let (angle, gen1) = randomR (0.0, 2 * pi) gen
+                    (radius, gen2) = randomR (0.0, goalRadius goal) gen1
+                    x = goalX goal + radius * cos angle
+                    y = goalY goal + radius * sin angle
+                 in if x >= xMin && x <= xMax && y >= yMin && y <= yMax
+                      then
+                        let (theta, gen3) = randomR (0.0, 2 * pi) gen2
+                            (v, gen4) = randomR (-5.0, 5.0) gen3
+                            (w, gen5) = randomR (-pi/2, pi/2) gen4
+                         in (Dynamics.State5D x y theta v w, gen5)
+                      else trySampleGoal gen2 (n + 1)
+       in trySampleGoal gen0 0
+
+    -- Check if robot at position (x, y) would fit entirely within workspace bounds
+    -- Uses conservative bounding radius check (orientation-independent)
+    robotFitsInWorkspace x y =
+      let robotRadius = Dynamics.robotBoundingRadius robot
+       in x - robotRadius >= workspaceXMin ws
+            && x + robotRadius <= workspaceXMax ws
+            && y - robotRadius >= workspaceYMin ws
+            && y + robotRadius <= workspaceYMax ws
 
     -- Convert Node to State5D
     nodeToState5D n = Dynamics.State5D
